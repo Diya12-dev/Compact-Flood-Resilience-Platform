@@ -16,6 +16,13 @@ There is a need for a low-cost, scalable, and intelligent flood management platf
 
 
 ##Our Solution:
+The Compact Flood Resilience Platform integrates three lightweight digital tools into a unified command system for flood preparedness and emergency response:
+
+Web-Based AR Flood Simulator
+Drone-Based Computer Vision Engine
+Smart Command Dashboard
+
+This platform provides citizens, volunteers, and emergency teams with visualization tools, AI-assisted rescue support, and intelligent routing during flood situations.
 
 
 ##Key Features:
@@ -29,12 +36,13 @@ There is a need for a low-cost, scalable, and intelligent flood management platf
 -Low-cost serverless deployment
 
 
-Web AR Flood Simulator
-Drone + YOLOv8 Detection
-Smart Command Dashboard
-SOS & Volunteer Dispatch
-Safe Routing
-Offline Support
+##Expected Impact
+Faster disaster response
+Better citizen preparedness
+Improved volunteer coordination
+Reduced response time
+Safer evacuation routes
+Low-cost deployment
 
 
 
@@ -79,6 +87,40 @@ Render / Railway
 ##Version Control
 Git
 GitHub
+
+
+###Folder Structure
+
+project/
+│
+├── frontend/
+│ ├── dashboard/
+│ ├── ar-module/
+│ └── components/
+│
+├── backend/
+│ ├── api/
+│ ├── routes/
+│ └── services/
+│
+├── ai/
+│ ├── yolo/
+│ └── detection/
+│
+├── database/
+│
+├── docs/
+│
+└── README.md
+
+##Future Scope
+Real-time drone integration
+Satellite data support
+SMS alert system
+Multi-disaster support
+Mobile application
+Government integration
+Large-scale deployment
 
 
 
