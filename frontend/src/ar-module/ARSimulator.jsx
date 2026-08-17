@@ -2,21 +2,135 @@ import React, { useState, useEffect, useRef } from 'react';
 import FallbackView from '../components/FallbackView';
 import './ARSimulator.css';
 
+// Register custom A-Frame hit-test listener component for WebXR immersive AR
+if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['ar-hit-test-listener']) {
+  window.AFRAME.registerComponent('ar-hit-test-listener', {
+    init: function () {
+      this.hitTestSource = null;
+
+      this.el.sceneEl.addEventListener('enter-vr', async () => {
+        if (this.el.sceneEl.is('ar-mode')) {
+          const session = this.el.sceneEl.renderer.xr.getSession();
+          if (session && session.requestHitTestSource) {
+            try {
+              const refSpace = await session.requestReferenceSpace('viewer');
+              this.hitTestSource = await session.requestHitTestSource({ space: refSpace });
+            } catch (e) {
+              console.warn('WebXR hit-test source request failed:', e);
+            }
+          }
+        }
+      });
+
+      this.el.sceneEl.addEventListener('exit-vr', () => {
+        this.hitTestSource = null;
+      });
+    },
+
+    tick: function () {
+      if (!this.hitTestSource) return;
+      const frame = this.el.sceneEl.frame;
+      if (!frame) return;
+
+      const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+      if (hitTestResults.length > 0) {
+        const hit = hitTestResults[0];
+        const referenceSpace = this.el.sceneEl.renderer.xr.getReferenceSpace();
+        const pose = hit.getPose(referenceSpace);
+        if (pose) {
+          const pos = pose.transform.position;
+          this.el.emit('ar-surface-found', {
+            x: parseFloat(pos.x.toFixed(3)),
+            y: parseFloat(pos.y.toFixed(3)),
+            z: parseFloat(pos.z.toFixed(3))
+          });
+        }
+      } else {
+        this.el.emit('ar-surface-lost');
+      }
+    }
+  });
+}
+
+// Helper function to calculate Flood Risk metadata based on predicted flood depth (in meters)
+function getRiskDetails(waterHeight) {
+  const percentage = Math.min(100, Math.max(0, Math.round((waterHeight / 3.5) * 100)));
+  if (percentage < 30) {
+    return {
+      level: 'LOW',
+      percentage,
+      color: '#10b981',
+      bgColor: 'rgba(16, 185, 129, 0.15)',
+      borderColor: 'rgba(16, 185, 129, 0.4)',
+      warning: 'Low inundation risk. Point camera at floor to position pre-flood visualizer.'
+    };
+  } else if (percentage < 60) {
+    return {
+      level: 'MODERATE',
+      percentage,
+      color: '#f59e0b',
+      bgColor: 'rgba(245, 158, 11, 0.15)',
+      borderColor: 'rgba(245, 158, 11, 0.4)',
+      warning: 'Moderate predicted inundation depth. Observe water level relative to floor.'
+    };
+  } else if (percentage < 80) {
+    return {
+      level: 'HIGH',
+      percentage,
+      color: '#f97316',
+      bgColor: 'rgba(249, 115, 22, 0.15)',
+      borderColor: 'rgba(249, 115, 22, 0.4)',
+      warning: 'High flood hazard! Significant water depth predicted over floor surface.'
+    };
+  } else {
+    return {
+      level: 'CRITICAL',
+      percentage,
+      color: '#ef4444',
+      bgColor: 'rgba(239, 68, 68, 0.2)',
+      borderColor: 'rgba(239, 68, 68, 0.5)',
+      warning: 'CRITICAL INUNDATION! Severe flood height visual representation.'
+    };
+  }
+}
+
 export default function ARSimulator() {
   const [cameraStream, setCameraStream] = useState(null);
   const [cameraError, setCameraError] = useState(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [isCheckingCamera, setIsCheckingCamera] = useState(true);
 
-  // Simulation State
-  const [waterHeight, setWaterHeight] = useState(0.5); // Meters
-  const [isWaterRising, setIsWaterRising] = useState(true);
-  const videoRef = useRef(null);
+  // WebXR & Spatial Hit-Test Placement State
+  const [isWebXRSupported, setIsWebXRSupported] = useState(false);
+  const [isSurfaceDetected, setIsSurfaceDetected] = useState(false);
+  const [detectedSurfacePose, setDetectedSurfacePose] = useState({ x: 0, y: -1.6, z: -3 });
+  const [isPlaced, setIsPlaced] = useState(false);
+  const [placedAnchor, setPlacedAnchor] = useState({ x: 0, y: -1.6, z: -3 });
 
-  // Request camera access on component mount
+  // Pre-Flood Water Visualization State (Controlled Depth & Presets)
+  const [selectedDepth, setSelectedDepth] = useState(1.0); // Default 1.0m
+  const [isAnimated, setIsAnimated] = useState(false); // Optional animation toggle (off by default)
+
+  const depthPresets = [0.5, 1.0, 1.5, 2.0, 3.0];
+  const videoRef = useRef(null);
+  const sceneRef = useRef(null);
+
+  // Check WebXR Immersive AR Capability & Camera Access
   useEffect(() => {
     let mounted = true;
 
+    // 1. Check WebXR API support
+    if (typeof navigator !== 'undefined' && navigator.xr && navigator.xr.isSessionSupported) {
+      navigator.xr.isSessionSupported('immersive-ar')
+        .then((supported) => {
+          if (mounted) setIsWebXRSupported(supported);
+        })
+        .catch(() => {
+          if (mounted) setIsWebXRSupported(false);
+        });
+    }
+
+    // 2. Request Camera Feed
     async function initCamera() {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         if (mounted) {
@@ -66,6 +180,30 @@ export default function ARSimulator() {
     };
   }, []);
 
+  // Bind WebXR Hit-Test Surface Events to A-Frame Scene
+  useEffect(() => {
+    const sceneEl = sceneRef.current;
+    if (!sceneEl) return;
+
+    const handleSurfaceFound = (evt) => {
+      const { x, y, z } = evt.detail;
+      setDetectedSurfacePose({ x, y, z });
+      setIsSurfaceDetected(true);
+    };
+
+    const handleSurfaceLost = () => {
+      setIsSurfaceDetected(false);
+    };
+
+    sceneEl.addEventListener('ar-surface-found', handleSurfaceFound);
+    sceneEl.addEventListener('ar-surface-lost', handleSurfaceLost);
+
+    return () => {
+      sceneEl.removeEventListener('ar-surface-found', handleSurfaceFound);
+      sceneEl.removeEventListener('ar-surface-lost', handleSurfaceLost);
+    };
+  }, [isCheckingCamera]);
+
   // Update video element when stream is ready
   useEffect(() => {
     if (cameraStream && videoRef.current) {
@@ -74,22 +212,39 @@ export default function ARSimulator() {
     }
   }, [cameraStream]);
 
-  // Rising Water Simulation Loop
+  // Optional Water Rise Animation Loop (off by default)
   useEffect(() => {
     let interval;
-    if (isWaterRising) {
+    if (isAnimated) {
       interval = setInterval(() => {
-        setWaterHeight((prev) => {
-          if (prev >= 3.5) return 0.2; // Loop simulation
+        setSelectedDepth((prev) => {
+          if (prev >= 3.5) return 0.2;
           return parseFloat((prev + 0.04).toFixed(2));
         });
       }, 250);
     }
     return () => clearInterval(interval);
-  }, [isWaterRising]);
+  }, [isAnimated]);
 
-  // Map numerical height to A-Frame Y position
-  const aframePlaneY = -1.8 + (waterHeight * 0.65);
+  // Dynamic Risk Details
+  const risk = getRiskDetails(selectedDepth);
+
+  // Active Anchor Pose
+  const currentAnchor = isPlaced
+    ? placedAnchor
+    : (isSurfaceDetected ? detectedSurfacePose : { x: 0, y: -1.6, z: -3 });
+
+  // WebXR 1:1 Metric Calibration:
+  // In A-Frame WebXR world units, 1 unit = 1 real-world meter.
+  // 1.0m selected depth elevates the water plane vertically by exactly +1.0 meter above the floor anchor.
+  const METRIC_SCALE_FACTOR = 1.0; 
+  const spatialWaterY = currentAnchor.y + (selectedDepth * METRIC_SCALE_FACTOR);
+
+  // Lock placement on user click/tap
+  const handlePlaceSimulation = () => {
+    setPlacedAnchor(detectedSurfacePose);
+    setIsPlaced(true);
+  };
 
   // Handle retry camera button click
   const handleRetryCamera = () => {
@@ -117,7 +272,11 @@ export default function ARSimulator() {
       {/* A-Frame 3D AR WebXR Scene */}
       <div className="ar-scene-container">
         <a-scene
+          ref={sceneRef}
           embedded
+          ar-hit-test-listener
+          webxr="optionalFeatures: hit-test, dom-overlay; overlayElement: .ar-ui-overlay"
+          ar-mode-ui="enabled: true"
           vr-mode-ui="enabled: false"
           style={{ width: '100%', height: '100%', background: 'transparent' }}
         >
@@ -128,59 +287,47 @@ export default function ARSimulator() {
           {/* Camera */}
           <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
 
-          {/* 3D Semi-Transparent Water Plane */}
-          <a-entity id="water-plane-container" position={`0 ${aframePlaneY} -3`}>
-            <a-plane
-              width="30"
-              height="30"
+          {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator */}
+          {!isPlaced && isSurfaceDetected && (
+            <a-entity
+              id="placement-indicator"
+              position={`${detectedSurfacePose.x} ${detectedSurfacePose.y} ${detectedSurfacePose.z}`}
               rotation="-90 0 0"
-              material="color: #0284c7; opacity: 0.62; transparent: true; metalness: 0.1; roughness: 0.1; side: double"
-              animation="property: material.opacity; to: 0.72; dir: alternate; dur: 2000; loop: true"
+            >
+              <a-ring
+                radius-inner="0.6"
+                radius-outer="0.8"
+                material="color: #06b6d4; opacity: 0.85; transparent: true; side: double"
+                animation="property: scale; to: 1.2 1.2 1.2; dir: alternate; dur: 800; loop: true"
+              ></a-ring>
+              <a-circle
+                radius="0.5"
+                material="color: #38bdf8; opacity: 0.35; transparent: true; side: double"
+              ></a-circle>
+            </a-entity>
+          )}
+
+          {/* 3D Water Plane Anchored to Detected/Placed Real-World Spatial Floor Position */}
+          <a-entity
+            id="water-plane-container"
+            position={`${currentAnchor.x} ${spatialWaterY} ${currentAnchor.z}`}
+          >
+            <a-plane
+              width="40"
+              height="40"
+              rotation="-90 0 0"
+              material={`color: ${risk.color}; opacity: 0.65; transparent: true; metalness: 0.2; roughness: 0.1; side: double`}
+              animation="property: material.opacity; to: 0.75; dir: alternate; dur: 1800; loop: true"
             ></a-plane>
             
             {/* Water Surface Wave Grid Lines */}
             <a-plane
-              width="30"
-              height="30"
+              width="40"
+              height="40"
               rotation="-90 0 0"
               position="0 0.02 0"
-              material="color: #38bdf8; opacity: 0.25; transparent: true; wireframe: true; side: double"
+              material="color: #ffffff; opacity: 0.25; transparent: true; wireframe: true; side: double"
             ></a-plane>
-          </a-entity>
-
-          {/* 3D Safety Direction Arrow pointing North-East */}
-          <a-entity
-            id="safety-direction-arrow"
-            position="1.2 0.8 -2.5"
-            rotation="0 45 25"
-            animation="property: position; to: 1.2 1.0 -2.5; dir: alternate; dur: 1200; loop: true"
-          >
-            {/* Arrow Head (Cone) */}
-            <a-cone
-              position="0 0.6 0"
-              radius-bottom="0.25"
-              radius-top="0"
-              height="0.5"
-              material="color: #10b981; emissive: #059669; emissiveIntensity: 0.6"
-            ></a-cone>
-            
-            {/* Arrow Shaft (Cylinder) */}
-            <a-cylinder
-              position="0 0.15 0"
-              radius="0.09"
-              height="0.6"
-              material="color: #10b981; emissive: #059669; emissiveIntensity: 0.4"
-            ></a-cylinder>
-
-            {/* Glowing Base Signal Ring */}
-            <a-ring
-              position="0 -0.2 0"
-              rotation="-90 0 0"
-              radius-inner="0.3"
-              radius-outer="0.45"
-              material="color: #10b981; opacity: 0.8; transparent: true; side: double"
-              animation="property: scale; to: 1.4 1.4 1.4; dir: alternate; dur: 1000; loop: true"
-            ></a-ring>
           </a-entity>
         </a-scene>
       </div>
@@ -189,34 +336,66 @@ export default function ARSimulator() {
       <div className="ar-ui-overlay">
         {/* Top Header HUD */}
         <div className="ar-header-hud ar-ui-interactive">
-          <div className="ar-badge">
-            <span className="ar-badge-pulse" />
-            <span>LIVE AR SIMULATION</span>
+          <div className="ar-header-top-row">
+            <div className="ar-badge">
+              <span className="ar-badge-pulse" />
+              <span>PRE-FLOOD WATER LEVEL VISUALIZER</span>
+            </div>
+
+            <div className="ar-title-card">
+              <span className="ar-title-text">Predicted Flood Depth: +{selectedDepth}m</span>
+            </div>
           </div>
 
-          <div className="ar-safety-card">
-            {/* Shield Check SVG */}
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
-              <path d="m9 12 2 2 4-4" />
-            </svg>
-            <div>
-              <div className="ar-safety-card-title">Find Safety Vector</div>
-              <div className="ar-safety-card-direction">North-East (NE - High Ground)</div>
+          {/* Dynamic Flood Risk Indicator Bar */}
+          <div className="ar-risk-card" style={{ borderColor: risk.borderColor }}>
+            <div className="ar-risk-header">
+              <span className="ar-risk-title">⚠️ FLOOD RISK LEVEL</span>
+              <span
+                className="ar-risk-badge"
+                style={{
+                  backgroundColor: risk.bgColor,
+                  color: risk.color,
+                  border: `1px solid ${risk.borderColor}`
+                }}
+              >
+                {risk.level} ({risk.percentage}%)
+              </span>
+            </div>
+            
+            <div className="ar-risk-bar-container">
+              <div
+                className="ar-risk-bar-fill"
+                style={{
+                  width: `${risk.percentage}%`,
+                  backgroundColor: risk.color
+                }}
+              />
             </div>
           </div>
         </div>
+
+        {/* Surface Detection & Tap-to-Place UX Banner */}
+        {!isPlaced && isSurfaceDetected && (
+          <div className="ar-placement-banner ar-ui-interactive">
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff' }}>
+              📍 Real-World Floor Detected!
+            </span>
+            <button onClick={handlePlaceSimulation} className="ar-placement-btn">
+              Tap to Place Simulation
+            </button>
+          </div>
+        )}
 
         {/* Loading Spinner during Camera Initialization */}
         {isCheckingCamera && (
           <div className="ar-instructions-box ar-ui-interactive" style={{ margin: 'auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-              {/* Eye SVG */}
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
-              <span>Connecting Camera Feed & AR Scene...</span>
+              <span>Connecting Camera & WebXR Spatial Sensors...</span>
             </div>
           </div>
         )}
@@ -225,43 +404,41 @@ export default function ARSimulator() {
         {!isCheckingCamera && (
           <div className="ar-instructions-box ar-ui-interactive">
             <p className="ar-instructions-text">
-              {/* Info SVG */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }}>
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
-              Point device around your surroundings. Watch the blue water plane rise and follow the green 3D arrow towards high ground.
+              {!isPlaced && !isSurfaceDetected ? 'Point camera at the ground to place the flood simulation.' : risk.warning}
             </p>
           </div>
         )}
 
         {/* Bottom Controls Dock */}
         <div className="ar-controls-dock ar-ui-interactive">
-          <div className="ar-control-group">
-            <span className="ar-water-meter">
-              Water Level: <strong>+{waterHeight}m</strong>
-            </span>
-            <input
-              type="range"
-              min="0"
-              max="3.5"
-              step="0.1"
-              value={waterHeight}
-              onChange={(e) => {
-                setWaterHeight(parseFloat(e.target.value));
-                setIsWaterRising(false);
-              }}
-              className="ar-slider"
-            />
-          </div>
+          {/* Depth Presets & Controls Row */}
+          <div className="ar-controls-row">
+            <div className="ar-presets-group">
+              <span className="ar-preset-label">Presets:</span>
+              {depthPresets.map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => {
+                    setSelectedDepth(preset);
+                    setIsAnimated(false);
+                  }}
+                  className={`ar-preset-btn ${selectedDepth === preset && !isAnimated ? 'active' : ''}`}
+                >
+                  {preset}m
+                </button>
+              ))}
+            </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <button
-              onClick={() => setIsWaterRising(!isWaterRising)}
-              className={`ar-btn-action ${isWaterRising ? 'ar-btn-secondary' : 'ar-btn-primary'}`}
+              onClick={() => setIsAnimated(!isAnimated)}
+              className={`ar-btn-action ${isAnimated ? 'ar-btn-secondary' : 'ar-btn-primary'}`}
             >
-              {isWaterRising ? (
+              {isAnimated ? (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <rect x="6" y="4" width="4" height="16" />
                   <rect x="14" y="4" width="4" height="16" />
@@ -271,22 +448,27 @@ export default function ARSimulator() {
                   <polygon points="6 3 20 12 6 21 6 3" />
                 </svg>
               )}
-              {isWaterRising ? 'Pause Water' : 'Auto Rise'}
+              {isAnimated ? 'Stop Animation' : 'Animate Flood'}
             </button>
+          </div>
 
-            <button
-              onClick={() => {
-                setWaterHeight(0.2);
-                setIsWaterRising(true);
+          {/* Continuous Depth Slider */}
+          <div className="ar-control-group">
+            <span className="ar-water-meter">
+              Predicted Depth: <strong>+{selectedDepth}m</strong>
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="3.5"
+              step="0.1"
+              value={selectedDepth}
+              onChange={(e) => {
+                setSelectedDepth(parseFloat(e.target.value));
+                setIsAnimated(false);
               }}
-              className="ar-btn-action ar-btn-secondary"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
-              </svg>
-              Reset Level
-            </button>
+              className="ar-slider"
+            />
           </div>
         </div>
       </div>

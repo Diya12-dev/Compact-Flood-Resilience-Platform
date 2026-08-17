@@ -1,25 +1,41 @@
 import React, { useState, useEffect } from 'react';
 
-export default function FallbackView({ errorMessage, onRetryCamera }) {
-  const [waterLevel, setWaterLevel] = useState(0.5); // meters
-  const [isRising, setIsRising] = useState(true);
-  const [safeDirection] = useState('North-East (NE - Elevation +15m)');
+// Helper to compute Flood Risk level & style properties based on predicted depth
+function getRiskDetails(waterHeight) {
+  const percentage = Math.min(100, Math.max(0, Math.round((waterHeight / 3.5) * 100)));
+  if (percentage < 30) {
+    return { level: 'LOW', percentage, color: '#10b981', bgColor: 'rgba(16, 185, 129, 0.15)', borderColor: 'rgba(16, 185, 129, 0.4)' };
+  } else if (percentage < 60) {
+    return { level: 'MODERATE', percentage, color: '#f59e0b', bgColor: 'rgba(245, 158, 11, 0.15)', borderColor: 'rgba(245, 158, 11, 0.4)' };
+  } else if (percentage < 80) {
+    return { level: 'HIGH', percentage, color: '#f97316', bgColor: 'rgba(249, 115, 22, 0.15)', borderColor: 'rgba(249, 115, 22, 0.4)' };
+  } else {
+    return { level: 'CRITICAL', percentage, color: '#ef4444', bgColor: 'rgba(239, 68, 68, 0.2)', borderColor: 'rgba(239, 68, 68, 0.5)' };
+  }
+}
 
+export default function FallbackView({ errorMessage, onRetryCamera }) {
+  const [selectedDepth, setSelectedDepth] = useState(1.0); // Default 1.0m
+  const [isAnimated, setIsAnimated] = useState(false); // Optional animate toggle
+
+  const depthPresets = [0.5, 1.0, 1.5, 2.0, 3.0];
+
+  // Optional Animate Loop (off by default)
   useEffect(() => {
     let interval;
-    if (isRising) {
+    if (isAnimated) {
       interval = setInterval(() => {
-        setWaterLevel((prev) => {
-          if (prev >= 3.0) return 0.2; // Loop back
+        setSelectedDepth((prev) => {
+          if (prev >= 3.5) return 0.2;
           return parseFloat((prev + 0.05).toFixed(2));
         });
-      }, 300);
+      }, 250);
     }
     return () => clearInterval(interval);
-  }, [isRising]);
+  }, [isAnimated]);
 
-  // Calculate visual height percentage for 3D simulated container
-  const fillPercentage = Math.min(100, Math.max(0, (waterLevel / 3.5) * 100));
+  const risk = getRiskDetails(selectedDepth);
+  const fillPercentage = Math.min(100, Math.max(0, (selectedDepth / 3.5) * 100));
 
   return (
     <div className="fallback-container" style={{
@@ -33,29 +49,28 @@ export default function FallbackView({ errorMessage, onRetryCamera }) {
       position: 'relative',
       overflow: 'hidden'
     }}>
-      {/* Top Banner Alert */}
+      {/* Top Alert Banner */}
       <div style={{
         backgroundColor: 'rgba(245, 158, 11, 0.15)',
         borderBottom: '1px solid rgba(245, 158, 11, 0.3)',
-        padding: '12px 20px',
+        padding: '10px 20px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         zIndex: 20
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          {/* Alert Triangle SVG */}
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
             <line x1="12" y1="9" x2="12" y2="13" />
             <line x1="12" y1="17" x2="12.01" y2="17" />
           </svg>
           <div>
-            <span style={{ fontWeight: 600, color: '#f59e0b', fontSize: '0.9rem' }}>
-              AR Camera Unavailable
+            <span style={{ fontWeight: 600, color: '#f59e0b', fontSize: '0.88rem' }}>
+              WebXR Spatial AR Unavailable
             </span>
             <p style={{ fontSize: '0.78rem', color: '#cbd5e1', margin: 0 }}>
-              {errorMessage || 'Camera feed or WebXR sensor access was denied or is unsupported on this device. Displaying 3D Simulation Fallback view.'}
+              {errorMessage || 'Camera feed or WebXR surface detection is unsupported on this device/browser. Displaying 3D Pre-Flood Visualizer fallback.'}
             </p>
           </div>
         </div>
@@ -79,7 +94,7 @@ export default function FallbackView({ errorMessage, onRetryCamera }) {
         )}
       </div>
 
-      {/* Main 3D Fallback Interactive Canvas View */}
+      {/* Main 3D Fallback Visualizer Canvas View */}
       <div style={{
         flex: 1,
         position: 'relative',
@@ -118,115 +133,79 @@ export default function FallbackView({ errorMessage, onRetryCamera }) {
               position: 'absolute',
               top: '8px',
               right: '12px',
-              fontSize: '0.75rem',
+              fontSize: '0.78rem',
               fontWeight: 700,
               color: '#ffffff',
-              backgroundColor: 'rgba(0,0,0,0.4)',
-              padding: '2px 8px',
-              borderRadius: '4px'
-            }}>
-              Simulated Flood Level: +{waterLevel}m
-            </div>
-          </div>
-
-          {/* 3D Directional Safety Arrow Component */}
-          <div style={{
-            position: 'absolute',
-            top: '20%',
-            left: '50%',
-            transform: 'translate(-50%, -50%) rotateZ(-45deg)',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            zIndex: 10
-          }}>
-            <div style={{
-              width: 0,
-              height: 0,
-              borderLeft: '20px solid transparent',
-              borderRight: '20px solid transparent',
-              borderBottom: '40px solid #10b981',
-              filter: 'drop-shadow(0 0 12px #10b981)',
-              animation: 'bounce 1.5s infinite alternate'
-            }} />
-            <div style={{
-              width: '12px',
-              height: '35px',
-              backgroundColor: '#10b981',
-              boxShadow: '0 0 10px #10b981'
-            }} />
-            <span style={{
-              marginTop: '8px',
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              color: '#10b981',
-              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              backgroundColor: 'rgba(0,0,0,0.5)',
               padding: '4px 10px',
               borderRadius: '6px',
-              border: '1px solid #10b981',
-              whiteSpace: 'nowrap',
-              transform: 'rotateZ(45deg)'
+              border: '1px solid rgba(255,255,255,0.2)'
             }}>
-              SAFE DIRECTION (NE)
-            </span>
+              Inundation Level: +{selectedDepth}m
+            </div>
           </div>
         </div>
 
-        {/* HUD Info Box */}
+        {/* Header Title Card */}
         <div style={{
           position: 'absolute',
           top: '20px',
           left: '20px',
-          backgroundColor: 'rgba(15, 23, 42, 0.85)',
+          backgroundColor: 'rgba(15, 23, 42, 0.88)',
           backdropFilter: 'blur(12px)',
           border: '1px solid rgba(255, 255, 255, 0.15)',
           borderRadius: '12px',
-          padding: '14px 18px',
-          maxWidth: '320px',
+          padding: '12px 18px',
+          maxWidth: '340px',
           zIndex: 10
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-            {/* Layers SVG */}
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
-              <path d="m22 12.5-8.58 3.91a2 2 0 0 1-1.66 0L3.18 12.5" />
-              <path d="m22 17.5-8.58 3.91a2 2 0 0 1-1.66 0L3.18 17.5" />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 12h20" />
+              <path d="M2 6h20" />
+              <path d="M2 18h20" />
             </svg>
-            <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#f8fafc' }}>
-              3D SIMULATION DEMO
+            <span style={{ fontWeight: 800, fontSize: '0.9rem', color: '#38bdf8', letterSpacing: '0.5px' }}>
+              PRE-FLOOD VISUALIZER
             </span>
           </div>
           <p style={{ fontSize: '0.8rem', color: '#94a3b8', lineHeight: 1.4, margin: 0 }}>
-            Simulating rising water table dynamics and evacuation vector pointing toward safe elevation ground.
+            Simulating predicted flood depth scenario relative to ground level.
           </p>
         </div>
 
-        {/* Find Safety Banner Overlay */}
+        {/* Dynamic Flood Risk Overlay Card */}
         <div style={{
           position: 'absolute',
           top: '20px',
           right: '20px',
-          backgroundColor: 'rgba(16, 185, 129, 0.15)',
-          border: '1px solid rgba(16, 185, 129, 0.4)',
+          backgroundColor: 'rgba(15, 23, 42, 0.88)',
+          backdropFilter: 'blur(12px)',
+          border: `1px solid ${risk.borderColor}`,
           borderRadius: '12px',
           padding: '12px 16px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px',
+          width: '300px',
           zIndex: 10
         }}>
-          {/* Shield Check SVG */}
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
-            <path d="m9 12 2 2 4-4" />
-          </svg>
-          <div>
-            <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              Recommended Evacuation
-            </div>
-            <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#10b981' }}>
-              {safeDirection}
-            </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              ⚠️ FLOOD RISK LEVEL
+            </span>
+            <span style={{
+              padding: '3px 10px',
+              borderRadius: '9999px',
+              fontSize: '0.75rem',
+              fontWeight: 800,
+              backgroundColor: risk.bgColor,
+              color: risk.color,
+              border: `1px solid ${risk.borderColor}`
+            }}>
+              {risk.level} ({risk.percentage}%)
+            </span>
+          </div>
+
+          <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${risk.percentage}%`, backgroundColor: risk.color, transition: 'width 0.3s ease, background-color 0.3s ease' }} />
           </div>
         </div>
       </div>
@@ -237,48 +216,74 @@ export default function FallbackView({ errorMessage, onRetryCamera }) {
         borderTop: '1px solid rgba(255, 255, 255, 0.15)',
         padding: '16px 24px',
         display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: '16px',
+        flexDirection: 'column',
+        gap: '12px',
         zIndex: 20
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: '220px' }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#38bdf8' }}>
-            Flood Height: <strong>+{waterLevel}m</strong>
-          </span>
-          <input
-            type="range"
-            min="0"
-            max="3.5"
-            step="0.1"
-            value={waterLevel}
-            onChange={(e) => {
-              setWaterLevel(parseFloat(e.target.value));
-              setIsRising(false);
-            }}
-            style={{ accentColor: '#06b6d4', flex: 1, cursor: 'pointer' }}
-          />
-        </div>
+        {/* Depth Presets & Slider Row */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
+              Presets:
+            </span>
+            {depthPresets.map((preset) => (
+              <button
+                key={preset}
+                onClick={() => {
+                  setSelectedDepth(preset);
+                  setIsAnimated(false);
+                }}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: '8px',
+                  fontSize: '0.8rem',
+                  fontWeight: 700,
+                  backgroundColor: selectedDepth === preset && !isAnimated ? '#0284c7' : 'rgba(255, 255, 255, 0.08)',
+                  color: selectedDepth === preset && !isAnimated ? '#ffffff' : '#cbd5e1',
+                  border: `1px solid ${selectedDepth === preset && !isAnimated ? '#38bdf8' : 'rgba(255, 255, 255, 0.18)'}`,
+                  cursor: 'pointer'
+                }}
+              >
+                {preset}m
+              </button>
+            ))}
+          </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flex: 1, minWidth: '220px' }}>
+            <span style={{ fontSize: '0.88rem', fontWeight: 700, color: '#38bdf8', whiteSpace: 'nowrap' }}>
+              Depth: <strong>+{selectedDepth}m</strong>
+            </span>
+            <input
+              type="range"
+              min="0"
+              max="3.5"
+              step="0.1"
+              value={selectedDepth}
+              onChange={(e) => {
+                setSelectedDepth(parseFloat(e.target.value));
+                setIsAnimated(false);
+              }}
+              style={{ accentColor: '#06b6d4', flex: 1, cursor: 'pointer' }}
+            />
+          </div>
+
           <button
-            onClick={() => setIsRising(!isRising)}
+            onClick={() => setIsAnimated(!isAnimated)}
             style={{
               display: 'flex',
               alignItems: 'center',
               gap: '6px',
               padding: '8px 16px',
-              backgroundColor: isRising ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-              color: isRising ? '#ef4444' : '#10b981',
-              border: `1px solid ${isRising ? '#ef4444' : '#10b981'}`,
+              backgroundColor: isAnimated ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+              color: isAnimated ? '#ef4444' : '#10b981',
+              border: `1px solid ${isAnimated ? '#ef4444' : '#10b981'}`,
               borderRadius: '8px',
               fontWeight: 600,
               fontSize: '0.85rem',
               cursor: 'pointer'
             }}
           >
-            {isRising ? (
+            {isAnimated ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="6" y="4" width="4" height="16" />
                 <rect x="14" y="4" width="4" height="16" />
@@ -288,33 +293,7 @@ export default function FallbackView({ errorMessage, onRetryCamera }) {
                 <polygon points="6 3 20 12 6 21 6 3" />
               </svg>
             )}
-            {isRising ? 'Pause Water' : 'Auto Rise'}
-          </button>
-
-          <button
-            onClick={() => {
-              setWaterLevel(0.2);
-              setIsRising(true);
-            }}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 16px',
-              backgroundColor: 'rgba(255, 255, 255, 0.08)',
-              color: '#f8fafc',
-              border: '1px solid rgba(255, 255, 255, 0.2)',
-              borderRadius: '8px',
-              fontWeight: 600,
-              fontSize: '0.85rem',
-              cursor: 'pointer'
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-              <path d="M3 3v5h5" />
-            </svg>
-            Reset Level
+            {isAnimated ? 'Stop Animation' : 'Animate Flood'}
           </button>
         </div>
       </div>
