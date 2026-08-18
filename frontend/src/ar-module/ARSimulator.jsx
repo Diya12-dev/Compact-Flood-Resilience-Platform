@@ -255,19 +255,33 @@ export default function ARSimulator() {
         return;
       }
 
-      // Diagnostic test: Request raw immersive-ar session WITHOUT optionalFeatures
+      // 1. Request native WebXR immersive AR session (proven to succeed on Android)
       const session = await navigator.xr.requestSession('immersive-ar');
 
-      // Handle session end lifecycle
+      // 2. Connect native XR session to A-Frame's Three.js WebGLRenderer
+      const vrManager = sceneEl.renderer ? sceneEl.renderer.xr : null;
+      if (vrManager) {
+        vrManager.enabled = true;
+        await vrManager.setSession(session);
+        sceneEl.xrSession = session;
+      }
+
+      // 3. Register session end lifecycle cleanup
       session.addEventListener('end', () => {
+        if (sceneEl.exitVR) {
+          sceneEl.exitVR();
+        }
         setIsInARSession(false);
         setIsPlaced(false);
         setIsSurfaceDetected(false);
       });
 
-      // Connect native WebXR session to A-Frame 3D scene & renderer
-      if (sceneEl.systems && sceneEl.systems.webxr) {
-        sceneEl.systems.webxr.onSessionStarted(session);
+      // 4. Update A-Frame state and emit enter-vr event for components
+      if (sceneEl.addState) {
+        sceneEl.addState('ar-mode');
+      }
+      if (sceneEl.emit) {
+        sceneEl.emit('enter-vr', { target: sceneEl });
       }
 
       setIsInARSession(true);
