@@ -104,6 +104,7 @@ export default function ARSimulator() {
   const [isWebXRSupported, setIsWebXRSupported] = useState(false);
   const [isCheckingWebXR, setIsCheckingWebXR] = useState(true);
   const [isInARSession, setIsInARSession] = useState(false);
+  const [arError, setArError] = useState(null);
 
   // WebXR Surface Hit-Test Placement State
   const [isSurfaceDetected, setIsSurfaceDetected] = useState(false);
@@ -222,15 +223,24 @@ export default function ARSimulator() {
     setIsPlaced(true);
   };
 
-  // Launch WebXR AR Immersive Session (mode: 'ar')
-  const handleStartAR = () => {
+  // Launch WebXR AR Immersive Session
+  const handleStartAR = async () => {
+    setArError(null);
     const sceneEl = sceneRef.current;
-    if (sceneEl) {
-      if (sceneEl.systems && sceneEl.systems.webxr) {
-        sceneEl.systems.webxr.enterVR({ mode: 'ar' });
-      } else if (sceneEl.enterAR) {
-        sceneEl.enterAR();
+    if (!sceneEl) return;
+
+    try {
+      if (sceneEl.enterAR) {
+        await sceneEl.enterAR();
+      } else if (sceneEl.systems && sceneEl.systems.webxr) {
+        await sceneEl.systems.webxr.enterVR(false);
+      } else {
+        throw new Error('A-Frame WebXR system is not initialized.');
       }
+    } catch (err) {
+      const errMsg = err?.message || String(err);
+      console.error('Failed to start WebXR AR session:', err);
+      setArError(errMsg);
     }
   };
 
@@ -351,13 +361,18 @@ export default function ARSimulator() {
 
         {/* Start AR Action Banner when not in AR session */}
         {!isInARSession && (
-          <div className="ar-placement-banner ar-ui-interactive" style={{ margin: 'auto' }}>
+          <div className="ar-placement-banner ar-ui-interactive" style={{ margin: 'auto', flexDirection: 'column', gap: '8px' }}>
             <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff' }}>
               WebXR Spatial AR Supported
             </span>
             <button onClick={handleStartAR} className="ar-placement-btn">
               Start AR Experience
             </button>
+            {arError && (
+              <span style={{ fontSize: '0.8rem', color: '#fca5a5', marginTop: '4px' }}>
+                Unable to start AR: {arError}
+              </span>
+            )}
           </div>
         )}
 
