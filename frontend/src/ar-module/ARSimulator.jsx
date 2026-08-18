@@ -87,20 +87,34 @@ function ensureHitTestComponentRegistered() {
   }
 }
 
-// Safely register custom A-Frame realistic animated water surface & ripple components
+// Safely register custom A-Frame realistic animated flood water & ripple components
 function ensureWaterComponentsRegistered() {
   if (typeof window !== 'undefined' && window.AFRAME) {
-    if (!window.AFRAME.components['realistic-water-surface']) {
-      window.AFRAME.registerComponent('realistic-water-surface', {
+    if (!window.AFRAME.components['realistic-flood-water']) {
+      window.AFRAME.registerComponent('realistic-flood-water', {
         init: function () {
           this.time = 0;
+          const mesh = this.el.getObject3D('mesh');
+          if (mesh && mesh.geometry) {
+            this.initialPositions = mesh.geometry.attributes.position.clone();
+          }
         },
         tick: function (t, dt) {
           this.time += dt * 0.001;
-          if (this.el.object3D) {
-            // Subtle wave motion and opacity breathing in A-Frame tick loop
-            this.el.object3D.rotation.z = Math.sin(this.time * 0.6) * 0.012;
-            this.el.object3D.position.y = Math.sin(this.time * 1.2) * 0.002;
+          const mesh = this.el.getObject3D('mesh');
+          if (mesh && mesh.geometry && this.initialPositions) {
+            const posAttr = mesh.geometry.attributes.position;
+            const initPos = this.initialPositions;
+            for (let i = 0; i < posAttr.count; i++) {
+              const x = initPos.getX(i);
+              const y = initPos.getY(i);
+              // Three overlapping sine waves for subtle liquid wave motion
+              const w1 = Math.sin(x * 1.5 + this.time * 1.2) * 0.015;
+              const w2 = Math.sin(y * 1.8 + this.time * 1.5) * 0.012;
+              const w3 = Math.sin((x + y) * 1.2 + this.time * 0.9) * 0.008;
+              posAttr.setZ(i, initPos.getZ(i) + (w1 + w2 + w3));
+            }
+            posAttr.needsUpdate = true;
           }
         }
       });
@@ -114,7 +128,7 @@ function ensureWaterComponentsRegistered() {
         tick: function (t, dt) {
           this.time += dt * 0.001;
           if (this.el.object3D) {
-            this.el.object3D.rotation.z = Math.sin(this.time * 0.8) * 0.02;
+            this.el.object3D.rotation.z = Math.sin(this.time * 0.5) * 0.015;
           }
         }
       });
@@ -210,9 +224,9 @@ export default function ARSimulator() {
     ensureWaterComponentsRegistered();
   }, []);
 
-  // Track physical screen orientation changes (Portrait vs Landscape)
+  // Track physical screen orientation changes (Portrait vs Landscape) & Viewport dimensions
   useEffect(() => {
-    const updateOrientation = () => {
+    const updateViewportAndOrientation = () => {
       let angle = 0;
       if (typeof window !== 'undefined') {
         if (window.screen && window.screen.orientation) {
@@ -220,31 +234,43 @@ export default function ARSimulator() {
         } else if (typeof window.orientation !== 'undefined') {
           angle = Number(window.orientation) || 0;
         }
+
+        const width = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+        const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+
+        const landscape = Math.abs(angle) === 90 || angle === 270 || width > height;
+
+        setScreenAngle(angle);
+        setIsLandscape(landscape);
+
+        document.documentElement.style.setProperty('--ar-viewport-width', `${width}px`);
+        document.documentElement.style.setProperty('--ar-viewport-height', `${height}px`);
       }
-
-      const landscape = Math.abs(angle) === 90 || angle === 270 || (typeof window !== 'undefined' && window.innerWidth > window.innerHeight);
-
-      setScreenAngle(angle);
-      setIsLandscape(landscape);
     };
 
-    updateOrientation();
+    updateViewportAndOrientation();
 
     if (typeof window !== 'undefined') {
       if (window.screen && window.screen.orientation) {
-        window.screen.orientation.addEventListener('change', updateOrientation);
+        window.screen.orientation.addEventListener('change', updateViewportAndOrientation);
       }
-      window.addEventListener('resize', updateOrientation);
-      window.addEventListener('orientationchange', updateOrientation);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', updateViewportAndOrientation);
+      }
+      window.addEventListener('resize', updateViewportAndOrientation);
+      window.addEventListener('orientationchange', updateViewportAndOrientation);
     }
 
     return () => {
       if (typeof window !== 'undefined') {
         if (window.screen && window.screen.orientation) {
-          window.screen.orientation.removeEventListener('change', updateOrientation);
+          window.screen.orientation.removeEventListener('change', updateViewportAndOrientation);
         }
-        window.removeEventListener('resize', updateOrientation);
-        window.removeEventListener('orientationchange', updateOrientation);
+        if (window.visualViewport) {
+          window.visualViewport.removeEventListener('resize', updateViewportAndOrientation);
+        }
+        window.removeEventListener('resize', updateViewportAndOrientation);
+        window.removeEventListener('orientationchange', updateViewportAndOrientation);
       }
     };
   }, []);
@@ -356,7 +382,8 @@ export default function ARSimulator() {
 
   // WebXR Metric 1:1 Height Calibration:
   // In WebXR / A-Frame world space, 1 unit = 1 real-world meter.
-  // The water volume extends from placedAnchor.y (floor) up to placedAnchor.y + currentWaterDepth.
+  // Floor Y is placedAnchor.y (locked floor anchor).
+  // Water Surface Y elevates vertically to placedAnchor.y + currentWaterDepth.
   const METRIC_SCALE_FACTOR = 1.0;
   const waterSurfaceY = placedAnchor.y + (currentWaterDepth * METRIC_SCALE_FACTOR);
 
@@ -691,7 +718,7 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Water Volume & Animated Surface (Bounded 3.6m x 3.6m Footprint) */}
+          {/* 3D Pre-Flood Translucent Water Surface Visualization (Bounded 3.6m x 3.6m Footprint, 100% World-Space Anchored) */}
           {isPlaced && (
             <a-entity id="water-simulation-container">
               {/* Concentric Soft Shoreline Perimeter Base at Floor Level */}
@@ -700,56 +727,40 @@ export default function ARSimulator() {
                 height="4.0"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${placedAnchor.y + 0.001} ${placedAnchor.z}`}
-                material="color: #075985; opacity: 0.15; transparent: true; side: double"
+                material="color: #075985; opacity: 0.10; transparent: true; side: double"
               ></a-plane>
 
-              {/* Continuous Translucent Aquatic Water Volume (Extends from Floor Y up to Water Surface Y) */}
-              <a-box
-                width="3.6"
-                depth="3.6"
-                height={Math.max(0.01, currentWaterDepth)}
-                position={`${placedAnchor.x} ${placedAnchor.y + currentWaterDepth / 2} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.22; transparent: true; roughness: 0.18; metalness: 0.05; side: double`}
-              ></a-box>
-
-              {/* Main Translucent Aquatic Water Surface Plane (Elevates Vertically with Depth) */}
+              {/* Concentric Feathered Edge Transition Layer */}
               <a-plane
-                realistic-water-surface
+                width="3.8"
+                height="3.8"
+                rotation="-90 0 0"
+                position={`${placedAnchor.x} ${waterSurfaceY - 0.004} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.16; transparent: true; side: double`}
+              ></a-plane>
+
+              {/* Subdivided Water Surface Mesh with Overlapping Wave Sine Displacement in A-Frame tick() */}
+              <a-plane
+                realistic-flood-water
                 width="3.6"
                 height="3.6"
+                segments-width="16"
+                segments-height="16"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.35; transparent: true; roughness: 0.1; metalness: 0.05; side: double`}
+                material={`color: ${risk.waterColor}; opacity: 0.26; transparent: true; roughness: 0.08; metalness: 0.05; side: double`}
               ></a-plane>
 
-              {/* Subtle Water Surface Wireframe Wave Ripple Grid Overlay */}
+              {/* Subtle Moving Aquatic Ripple Highlight Overlay */}
               <a-plane
                 water-ripple-animator
                 width="3.6"
                 height="3.6"
                 rotation="-90 0 0"
-                position={`${placedAnchor.x} ${waterSurfaceY + 0.006} ${placedAnchor.z}`}
-                material="color: #38bdf8; opacity: 0.16; transparent: true; wireframe: true; side: double"
+                position={`${placedAnchor.x} ${waterSurfaceY + 0.004} ${placedAnchor.z}`}
+                material="color: #38bdf8; opacity: 0.09; transparent: true; side: double"
+                animation="property: material.opacity; to: 0.14; dir: alternate; dur: 2200; loop: true"
               ></a-plane>
-
-              {/* Floating World-Space Depth Badge near Water Surface Boundary */}
-              <a-entity
-                position={`${placedAnchor.x} ${waterSurfaceY + 0.18} ${placedAnchor.z - 1.8}`}
-                rotation="0 0 0"
-              >
-                <a-plane
-                  width="1.1"
-                  height="0.22"
-                  material="color: #0f172a; opacity: 0.85; transparent: true"
-                ></a-plane>
-                <a-text
-                  value={`FLOOD LEVEL +${currentWaterDepth.toFixed(1)}m`}
-                  color="#38bdf8"
-                  align="center"
-                  position="0 0 0.01"
-                  width="1.6"
-                ></a-text>
-              </a-entity>
             </a-entity>
           )}
         </a-scene>
