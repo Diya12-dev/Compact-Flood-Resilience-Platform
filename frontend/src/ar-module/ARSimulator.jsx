@@ -153,6 +153,9 @@ export default function ARSimulator() {
   // Spatial Anchor Lock Ref to prevent continuous repositioning jitter
   const isLockedRef = useRef(false);
 
+  // WebXR DOM Overlay API Root Element Ref
+  const arHudRootRef = useRef(null);
+
   // Pre-Flood Water Visualization State (Target Depth, Live Depth, Animation Status)
   const [selectedDepth, setSelectedDepth] = useState(1.0); // Target Depth (e.g. 1.0m, 3.0m)
   const [currentWaterDepth, setCurrentWaterDepth] = useState(1.0); // Live Animated Depth
@@ -301,7 +304,7 @@ export default function ARSimulator() {
     ].join(': ');
   };
 
-  // Launch WebXR AR Immersive Session directly from user touch gesture
+  // Launch WebXR AR Immersive Session directly from user touch gesture with DOM Overlay API
   const handleStartAR = async () => {
     setArError(null);
     const sceneEl = sceneRef.current;
@@ -319,8 +322,20 @@ export default function ARSimulator() {
         return;
       }
 
+      // WebXR Session Configuration with DOM Overlay API
+      const sessionOptions = {
+        optionalFeatures: ['dom-overlay']
+      };
+
+      if (arHudRootRef.current) {
+        sessionOptions.domOverlay = { root: arHudRootRef.current };
+      }
+
       // 1. Request native WebXR immersive AR session
-      const session = await navigator.xr.requestSession('immersive-ar');
+      const session = await navigator.xr.requestSession('immersive-ar', sessionOptions);
+
+      console.log('WebXR Session Created Successfully');
+      console.log('DOM Overlay State:', session.domOverlayState || 'Not supported / not active');
 
       // Reset placement lock ref
       isLockedRef.current = false;
@@ -507,6 +522,59 @@ export default function ARSimulator() {
 
   return (
     <div className="ar-simulator-root">
+      {/* WebXR DOM Overlay API Root Element (Mounted in DOM so ref exists for requestSession) */}
+      <div
+        ref={arHudRootRef}
+        id="ar-dom-overlay-root"
+        className={`ar-dom-overlay-container ${isInARSession ? 'active' : ''}`}
+      >
+        {isInARSession && (
+          <div className="ar-hud-two-corners">
+            {/* Top-Left Corner Panel */}
+            <div className="ar-hud-corner-card ar-hud-top-left">
+              <span className="ar-hud-corner-title">FLOOD SIMULATION</span>
+              <div className="ar-hud-corner-status" style={{ color: animStatus === 'FLOOD RISING' ? '#06b6d4' : '#10b981' }}>
+                <span
+                  className="ar-status-dot"
+                  style={{
+                    backgroundColor:
+                      animStatus === 'FLOOD RISING' ? '#06b6d4' :
+                      animStatus === 'SIMULATION COMPLETE' ? '#10b981' : '#38bdf8'
+                  }}
+                />
+                <span>
+                  {animStatus === 'FLOOD RISING' ? 'FLOOD RISING' :
+                   animStatus === 'SIMULATION COMPLETE' ? 'COMPLETE' : 'ACTIVE'}
+                </span>
+              </div>
+              <div className="ar-hud-corner-title" style={{ marginTop: '2px', color: risk.color }}>
+                RISK: {risk.level} · {risk.percentage}%
+              </div>
+            </div>
+
+            {/* Top-Right Corner Panel */}
+            <div className="ar-hud-corner-card ar-hud-top-right">
+              <span className="ar-hud-corner-title">WATER LEVEL</span>
+              <span className="ar-hud-corner-metric">
+                +{currentWaterDepth.toFixed(1)}m
+              </span>
+              <div style={{ fontSize: '0.68rem', color: '#cbd5e1', fontWeight: 700 }}>
+                TARGET {selectedDepth.toFixed(1)}m
+              </div>
+              <div className="ar-hud-mini-progress-track">
+                <div
+                  className="ar-hud-mini-progress-fill"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, (currentWaterDepth / selectedDepth) * 100))}%`,
+                    backgroundColor: risk.color
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* A-Frame 3D AR WebXR Scene */}
       <div className="ar-scene-container">
         <a-scene
@@ -589,55 +657,9 @@ export default function ARSimulator() {
         </a-scene>
       </div>
 
-      {/* UI Overlay Layer */}
+      {/* Normal UI Overlay Layer (Outside AR Mode) */}
       <div className="ar-ui-overlay">
-        {/* In-AR Responsive Two-Corner HUD Overlay */}
-        {isInARSession ? (
-          <div className="ar-hud-two-corners ar-ui-interactive">
-            {/* Top-Left Corner Panel */}
-            <div className="ar-hud-corner-card">
-              <span className="ar-hud-corner-title">FLOOD SIMULATION</span>
-              <div className="ar-hud-corner-status" style={{ color: animStatus === 'FLOOD RISING' ? '#06b6d4' : '#10b981' }}>
-                <span
-                  className="ar-status-dot"
-                  style={{
-                    backgroundColor:
-                      animStatus === 'FLOOD RISING' ? '#06b6d4' :
-                      animStatus === 'SIMULATION COMPLETE' ? '#10b981' : '#38bdf8'
-                  }}
-                />
-                <span>
-                  {animStatus === 'FLOOD RISING' ? 'FLOOD RISING' :
-                   animStatus === 'SIMULATION COMPLETE' ? 'COMPLETE' : 'ACTIVE'}
-                </span>
-              </div>
-              <div className="ar-hud-corner-title" style={{ marginTop: '2px', color: risk.color }}>
-                RISK: {risk.level} · {risk.percentage}%
-              </div>
-            </div>
-
-            {/* Top-Right Corner Panel */}
-            <div className="ar-hud-corner-card" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
-              <span className="ar-hud-corner-title">WATER LEVEL</span>
-              <span className="ar-hud-corner-metric">
-                +{currentWaterDepth.toFixed(1)}m
-              </span>
-              <div style={{ fontSize: '0.68rem', color: '#cbd5e1', fontWeight: 700 }}>
-                TARGET {selectedDepth.toFixed(1)}m
-              </div>
-              <div className="ar-hud-mini-progress-track">
-                <div
-                  className="ar-hud-mini-progress-fill"
-                  style={{
-                    width: `${Math.min(100, Math.max(0, (currentWaterDepth / selectedDepth) * 100))}%`,
-                    backgroundColor: risk.color
-                  }}
-                />
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* Normal Web Header HUD (outside AR) */
+        {!isInARSession && (
           <div className="ar-header-hud ar-ui-interactive">
             <div className="ar-header-top-row">
               <div className="ar-badge">
