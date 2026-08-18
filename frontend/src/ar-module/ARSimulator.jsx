@@ -105,6 +105,7 @@ export default function ARSimulator() {
   const [isCheckingWebXR, setIsCheckingWebXR] = useState(true);
   const [isInARSession, setIsInARSession] = useState(false);
   const [arError, setArError] = useState(null);
+  const [isHitTestSupported, setIsHitTestSupported] = useState(true);
 
   // WebXR Surface Hit-Test Placement State
   const [isSurfaceDetected, setIsSurfaceDetected] = useState(false);
@@ -223,24 +224,84 @@ export default function ARSimulator() {
     setIsPlaced(true);
   };
 
-  // Launch WebXR AR Immersive Session
+  // Helper to format detailed WebXR DOMExceptions
+  const formatXRError = (err) => {
+    if (!err) return 'Unknown WebXR Error';
+    if (typeof err === 'string') return err;
+    const name = err.name || 'WebXRError';
+    const msg = err.message || String(err);
+    return `${name}: ${msg}`;
+  };
+
+  // Launch WebXR AR Immersive Session with Layered Graceful Capability Detection
   const handleStartAR = async () => {
     setArError(null);
     const sceneEl = sceneRef.current;
     if (!sceneEl) return;
 
+    if (!navigator.xr) {
+      setArError('NotSupportedError: WebXR API (navigator.xr) is unavailable.');
+      return;
+    }
+
+    // Attempt 1: Full AR with hit-test + dom-overlay
     try {
+      sceneEl.setAttribute('webxr', {
+        optionalFeatures: ['hit-test', 'dom-overlay'],
+        overlayElement: '.ar-ui-overlay',
+        referenceSpaceType: 'local-floor'
+      });
+
       if (sceneEl.enterAR) {
         await sceneEl.enterAR();
       } else if (sceneEl.systems && sceneEl.systems.webxr) {
         await sceneEl.systems.webxr.enterVR(false);
-      } else {
-        throw new Error('A-Frame WebXR system is not initialized.');
       }
-    } catch (err) {
-      const errMsg = err?.message || String(err);
-      console.error('Failed to start WebXR AR session:', err);
-      setArError(errMsg);
+      setIsHitTestSupported(true);
+      return;
+    } catch (err1) {
+      console.warn('Attempt 1 (hit-test + dom-overlay) failed:', err1);
+
+      // Attempt 2: AR without hit-test (dom-overlay only)
+      try {
+        sceneEl.setAttribute('webxr', {
+          optionalFeatures: ['dom-overlay'],
+          overlayElement: '.ar-ui-overlay',
+          referenceSpaceType: 'local-floor'
+        });
+
+        if (sceneEl.enterAR) {
+          await sceneEl.enterAR();
+        } else if (sceneEl.systems && sceneEl.systems.webxr) {
+          await sceneEl.systems.webxr.enterVR(false);
+        }
+        setIsHitTestSupported(false);
+        setPlacedAnchor({ x: 0, y: -1.6, z: -2.5 });
+        setIsPlaced(true);
+        return;
+      } catch (err2) {
+        console.warn('Attempt 2 (dom-overlay only) failed:', err2);
+
+        // Attempt 3: Direct WebXR requestSession fallback
+        try {
+          const session = await navigator.xr.requestSession('immersive-ar', {
+            optionalFeatures: ['dom-overlay'],
+            domOverlay: { root: document.querySelector('.ar-ui-overlay') || document.body }
+          });
+          if (sceneEl.systems && sceneEl.systems.webxr) {
+            sceneEl.systems.webxr.onSessionStarted(session);
+            setIsInARSession(true);
+            setIsHitTestSupported(false);
+            setPlacedAnchor({ x: 0, y: -1.6, z: -2.5 });
+            setIsPlaced(true);
+            return;
+          }
+        } catch (err3) {
+          console.error('All WebXR AR session attempts failed:', err3);
+          const detailedError = formatXRError(err1 || err2 || err3);
+          setArError(detailedError);
+        }
+      }
     }
   };
 
@@ -257,7 +318,7 @@ export default function ARSimulator() {
           ref={sceneRef}
           embedded
           ar-hit-test-listener
-          webxr="optionalFeatures: hit-test, dom-overlay; overlayElement: .ar-ui-overlay"
+          webxr="optionalFeatures: hit-test,dom-overlay; overlayElement: .ar-ui-overlay"
           ar-mode-ui="enabled: true"
           vr-mode-ui="enabled: false"
           style={{ width: '100%', height: '100%', background: 'transparent' }}
@@ -270,7 +331,7 @@ export default function ARSimulator() {
           <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
 
           {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator (Visible ONLY Before Placement) */}
-          {!isPlaced && isSurfaceDetected && (
+          {!isPlaced && isSurfaceDetected && isHitTestSupported && (
             <a-entity
               id="placement-indicator"
               position={`${detectedSurfacePose.x} ${detectedSurfacePose.y} ${detectedSurfacePose.z}`}
@@ -369,7 +430,7 @@ export default function ARSimulator() {
               Start AR Experience
             </button>
             {arError && (
-              <span style={{ fontSize: '0.8rem', color: '#fca5a5', marginTop: '4px' }}>
+              <span style={{ fontSize: '0.8rem', color: '#fca5a5', marginTop: '4px', textAlign: 'center', wordBreak: 'break-word' }}>
                 Unable to start AR: {arError}
               </span>
             )}
@@ -377,7 +438,7 @@ export default function ARSimulator() {
         )}
 
         {/* Surface Detection & Tap-to-Place UX Banner inside AR session */}
-        {isInARSession && !isPlaced && isSurfaceDetected && (
+        {isInARSession && !isPlaced && isSurfaceDetected && isHitTestSupported && (
           <div className="ar-placement-banner ar-ui-interactive">
             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff' }}>
               📍 Real-World Floor Detected!
@@ -399,9 +460,11 @@ export default function ARSimulator() {
               </svg>
               {!isInARSession
                 ? 'Tap "Start AR Experience" to begin camera passthrough and floor detection.'
-                : (!isPlaced && !isSurfaceDetected
-                  ? 'Point camera at the ground to place the flood simulation.'
-                  : (isPlaced ? risk.warning : 'Floor detected. Tap "Tap to Place Simulation" to render water plane.'))}
+                : (!isHitTestSupported
+                  ? 'AR Camera Active. Floor hit-testing is unsupported on this device; visualizer rendered at default spatial position.'
+                  : (!isPlaced && !isSurfaceDetected
+                    ? 'Point camera at the ground to place the flood simulation.'
+                    : (isPlaced ? risk.warning : 'Floor detected. Tap "Tap to Place Simulation" to render water plane.')))}
             </p>
           </div>
         )}
