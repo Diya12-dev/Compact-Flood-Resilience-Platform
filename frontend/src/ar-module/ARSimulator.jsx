@@ -153,9 +153,11 @@ export default function ARSimulator() {
   // Spatial Anchor Lock Ref to prevent continuous repositioning jitter
   const isLockedRef = useRef(false);
 
-  // Pre-Flood Water Visualization State (Controlled Depth & Presets)
-  const [selectedDepth, setSelectedDepth] = useState(1.0); // Default 1.0m
-  const [isAnimated, setIsAnimated] = useState(false); // Optional animation toggle (off by default)
+  // Pre-Flood Water Visualization State (Target Depth, Live Depth, Animation Status)
+  const [selectedDepth, setSelectedDepth] = useState(1.0); // Target Depth (e.g. 1.0m, 3.0m)
+  const [currentWaterDepth, setCurrentWaterDepth] = useState(1.0); // Live Animated Depth
+  const [animStatus, setAnimStatus] = useState('READY'); // 'READY', 'FLOOD RISING', 'SIMULATION COMPLETE'
+  const [isAnimated, setIsAnimated] = useState(false); // Animation active flag
 
   const depthPresets = [0.5, 1.0, 1.5, 2.0, 3.0];
   const sceneRef = useRef(null);
@@ -241,28 +243,40 @@ export default function ARSimulator() {
     };
   }, [isCheckingWebXR]);
 
-  // Optional Water Rise Animation Loop (off by default)
+  // Throttled Smooth Flood Animation Loop (~10Hz)
   useEffect(() => {
     let interval;
     if (isAnimated) {
+      setAnimStatus('FLOOD RISING');
+      setCurrentWaterDepth(0.1);
       interval = setInterval(() => {
-        setSelectedDepth((prev) => {
-          if (prev >= 3.5) return 0.2;
-          return parseFloat((prev + 0.04).toFixed(2));
+        setCurrentWaterDepth((prev) => {
+          const next = parseFloat((prev + 0.1).toFixed(2));
+          if (next >= selectedDepth) {
+            setIsAnimated(false);
+            setAnimStatus('SIMULATION COMPLETE');
+            return selectedDepth;
+          }
+          return next;
         });
-      }, 250);
+      }, 100);
+    } else {
+      if (animStatus !== 'SIMULATION COMPLETE') {
+        setCurrentWaterDepth(selectedDepth);
+        setAnimStatus('READY');
+      }
     }
     return () => clearInterval(interval);
-  }, [isAnimated]);
+  }, [isAnimated, selectedDepth]);
 
-  // Dynamic Risk Details
-  const risk = getRiskDetails(selectedDepth);
+  // Dynamic Risk Details based on live water depth
+  const risk = getRiskDetails(currentWaterDepth);
 
   // WebXR Metric 1:1 Height Calibration:
   // In WebXR / A-Frame world space, 1 unit = 1 real-world meter.
-  // 1.0m selected depth elevates the water plane vertically by exactly +1.0 meter above locked placed floor anchor.
+  // currentWaterDepth elevates the water plane vertically by exactly +1.0 meter per depth meter above locked floor anchor.
   const METRIC_SCALE_FACTOR = 1.0;
-  const spatialWaterY = placedAnchor.y + (selectedDepth * METRIC_SCALE_FACTOR);
+  const spatialWaterY = placedAnchor.y + (currentWaterDepth * METRIC_SCALE_FACTOR);
 
   // Explicitly lock spatial placement on user tap/click
   const handlePlaceSimulation = () => {
@@ -568,46 +582,106 @@ export default function ARSimulator() {
 
       {/* UI Overlay Layer */}
       <div className="ar-ui-overlay">
-        {/* Top Header HUD */}
-        <div className="ar-header-hud ar-ui-interactive">
-          <div className="ar-header-top-row">
-            <div className="ar-badge">
-              <span className="ar-badge-pulse" />
-              <span>PRE-FLOOD WATER LEVEL VISUALIZER</span>
+        {/* In-AR Mode Top Status Panel & Metrics HUD */}
+        {isInARSession ? (
+          <div className="ar-hud-top ar-ui-interactive">
+            <div className="ar-hud-header-row">
+              <div className="ar-badge">
+                <span className="ar-badge-pulse" />
+                <span>PRE-FLOOD AR SIMULATION</span>
+              </div>
+              <div className="ar-hud-status-chip">
+                <span
+                  className="ar-status-dot"
+                  style={{
+                    backgroundColor:
+                      animStatus === 'FLOOD RISING' ? '#06b6d4' :
+                      animStatus === 'SIMULATION COMPLETE' ? '#10b981' : '#38bdf8'
+                  }}
+                />
+                <span>
+                  {animStatus === 'FLOOD RISING' ? 'FLOOD RISING' :
+                   animStatus === 'SIMULATION COMPLETE' ? 'SIMULATION COMPLETE' : 'SIMULATION ACTIVE'}
+                </span>
+              </div>
             </div>
 
-            <div className="ar-title-card">
-              <span className="ar-title-text">Predicted Flood Depth: +{selectedDepth}m</span>
+            <div className="ar-hud-metrics-grid">
+              <div className="ar-hud-metric-card">
+                <span className="ar-hud-label">FLOOD DEPTH</span>
+                <span className="ar-hud-val">+{currentWaterDepth.toFixed(1)} m</span>
+              </div>
+
+              <div className="ar-hud-metric-card" style={{ borderColor: risk.borderColor }}>
+                <span className="ar-hud-label">FLOOD RISK</span>
+                <span className="ar-hud-val" style={{ color: risk.color }}>
+                  ⚠️ {risk.level} · {risk.percentage}%
+                </span>
+              </div>
+            </div>
+
+            {/* In-AR Flood Level Progress Bar */}
+            <div className="ar-hud-progress-box">
+              <div className="ar-hud-progress-header">
+                <span className="ar-hud-progress-title">FLOOD LEVEL PROGRESS</span>
+                <span className="ar-hud-progress-val">
+                  {currentWaterDepth.toFixed(1)}m / {selectedDepth.toFixed(1)}m
+                </span>
+              </div>
+
+              <div className="ar-hud-progress-bar-track">
+                <div
+                  className="ar-hud-progress-bar-fill"
+                  style={{
+                    width: `${Math.min(100, Math.max(0, (currentWaterDepth / selectedDepth) * 100))}%`,
+                    backgroundColor: risk.color
+                  }}
+                />
+              </div>
             </div>
           </div>
+        ) : (
+          /* Normal Web Header HUD (outside AR) */
+          <div className="ar-header-hud ar-ui-interactive">
+            <div className="ar-header-top-row">
+              <div className="ar-badge">
+                <span className="ar-badge-pulse" />
+                <span>PRE-FLOOD WATER LEVEL VISUALIZER</span>
+              </div>
 
-          {/* Dynamic Flood Risk Indicator Bar */}
-          <div className="ar-risk-card" style={{ borderColor: risk.borderColor }}>
-            <div className="ar-risk-header">
-              <span className="ar-risk-title">⚠️ FLOOD RISK LEVEL</span>
-              <span
-                className="ar-risk-badge"
-                style={{
-                  backgroundColor: risk.bgColor,
-                  color: risk.color,
-                  border: `1px solid ${risk.borderColor}`
-                }}
-              >
-                {risk.level} ({risk.percentage}%)
-              </span>
+              <div className="ar-title-card">
+                <span className="ar-title-text">Predicted Flood Depth: +{selectedDepth}m</span>
+              </div>
             </div>
 
-            <div className="ar-risk-bar-container">
-              <div
-                className="ar-risk-bar-fill"
-                style={{
-                  width: `${risk.percentage}%`,
-                  backgroundColor: risk.color
-                }}
-              />
+            {/* Dynamic Flood Risk Indicator Bar */}
+            <div className="ar-risk-card" style={{ borderColor: risk.borderColor }}>
+              <div className="ar-risk-header">
+                <span className="ar-risk-title">⚠️ FLOOD RISK LEVEL</span>
+                <span
+                  className="ar-risk-badge"
+                  style={{
+                    backgroundColor: risk.bgColor,
+                    color: risk.color,
+                    border: `1px solid ${risk.borderColor}`
+                  }}
+                >
+                  {risk.level} ({risk.percentage}%)
+                </span>
+              </div>
+
+              <div className="ar-risk-bar-container">
+                <div
+                  className="ar-risk-bar-fill"
+                  style={{
+                    width: `${risk.percentage}%`,
+                    backgroundColor: risk.color
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Start AR Action Banner when not in AR session */}
         {!isInARSession && (
@@ -712,20 +786,8 @@ export default function ARSimulator() {
           </div>
         )}
 
-        {/* Surface Detection & Tap-to-Lock UX Banner inside AR session */}
-        {isInARSession && !isLockedRef.current && isSurfaceDetected && isHitTestSupported && (
-          <div className="ar-placement-banner ar-ui-interactive">
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff' }}>
-              📍 Real-World Floor Detected!
-            </span>
-            <button onClick={handlePlaceSimulation} className="ar-placement-btn">
-              Lock Floor Position
-            </button>
-          </div>
-        )}
-
-        {/* User Instructions */}
-        {!isCheckingWebXR && (
+        {/* User Instructions (outside AR) */}
+        {!isInARSession && !isCheckingWebXR && (
           <div className="ar-instructions-box ar-ui-interactive">
             <p className="ar-instructions-text">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }}>
@@ -733,74 +795,174 @@ export default function ARSimulator() {
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
-              {!isInARSession
-                ? 'Tap "Start AR Experience" to begin camera passthrough and flood visualization.'
-                : (isLockedRef.current
-                  ? risk.warning
-                  : (isSurfaceDetected
-                    ? 'Floor detected! Tap "Lock Floor Position" to lock spatial anchor.'
-                    : 'Point camera at the ground to detect real-world floor surface.'))}
+              Tap "Start AR Experience" to begin camera passthrough and flood visualization.
             </p>
           </div>
         )}
 
-        {/* Bottom Controls Dock */}
-        <div className="ar-controls-dock ar-ui-interactive">
-          {/* Depth Presets & Controls Row */}
-          <div className="ar-controls-row">
-            <div className="ar-presets-group">
-              <span className="ar-preset-label">Presets:</span>
-              {depthPresets.map((preset) => (
-                <button
-                  key={preset}
-                  onClick={() => {
-                    setSelectedDepth(preset);
-                    setIsAnimated(false);
-                  }}
-                  className={`ar-preset-btn ${selectedDepth === preset && !isAnimated ? 'active' : ''}`}
-                >
-                  {preset}m
-                </button>
-              ))}
+        {/* In-AR Mode Bottom Controls Dock */}
+        {isInARSession ? (
+          <div className="ar-hud-bottom ar-ui-interactive">
+            {/* Lock Status & Guidance Bar */}
+            <div className="ar-hud-lock-bar">
+              <span
+                className="ar-lock-chip"
+                style={{
+                  borderColor: isLockedRef.current ? 'rgba(16,185,129,0.5)' : 'rgba(6,182,212,0.5)',
+                  color: isLockedRef.current ? '#10b981' : '#38bdf8'
+                }}
+              >
+                {isLockedRef.current ? '📍 FLOOR LOCKED' : (isSurfaceDetected ? '📍 FLOOR DETECTED' : '📍 DETECTING FLOOR...')}
+              </span>
+              <span className="ar-hud-instruction">
+                {isLockedRef.current
+                  ? risk.warning
+                  : (isSurfaceDetected
+                    ? 'Floor detected · Position locked'
+                    : 'Point camera at the floor to detect surface')}
+              </span>
             </div>
 
-            <button
-              onClick={() => setIsAnimated(!isAnimated)}
-              className={`ar-btn-action ${isAnimated ? 'ar-btn-secondary' : 'ar-btn-primary'}`}
-            >
-              {isAnimated ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="6" y="4" width="4" height="16" />
-                  <rect x="14" y="4" width="4" height="16" />
-                </svg>
-              ) : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polygon points="6 3 20 12 6 21 6 3" />
-                </svg>
-              )}
-              {isAnimated ? 'Stop Animation' : 'Animate Flood'}
-            </button>
-          </div>
+            {/* Presets & Animation Controls Row */}
+            <div className="ar-controls-row">
+              <div className="ar-presets-group">
+                <span className="ar-preset-label">Presets:</span>
+                {depthPresets.map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => {
+                      setSelectedDepth(preset);
+                      setCurrentWaterDepth(preset);
+                      setIsAnimated(false);
+                      setAnimStatus('READY');
+                    }}
+                    className={`ar-preset-btn ${selectedDepth === preset && !isAnimated ? 'active' : ''}`}
+                  >
+                    {preset}m
+                  </button>
+                ))}
+              </div>
 
-          {/* Continuous Depth Slider */}
-          <div className="ar-control-group">
-            <span className="ar-water-meter">
-              Predicted Depth: <strong>+{selectedDepth}m</strong>
-            </span>
-            <input
-              type="range"
-              min="0"
-              max="3.5"
-              step="0.1"
-              value={selectedDepth}
-              onChange={(e) => {
-                setSelectedDepth(parseFloat(e.target.value));
-                setIsAnimated(false);
-              }}
-              className="ar-slider"
-            />
+              <button
+                onClick={() => {
+                  if (isAnimated) {
+                    setIsAnimated(false);
+                    setAnimStatus('READY');
+                  } else {
+                    setIsAnimated(true);
+                  }
+                }}
+                className={`ar-btn-action ${isAnimated ? 'ar-btn-secondary' : 'ar-btn-primary'}`}
+              >
+                {animStatus === 'FLOOD RISING' ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="6" y="4" width="4" height="16" />
+                      <rect x="14" y="4" width="4" height="16" />
+                    </svg>
+                    ⏸ FLOOD RISING
+                  </>
+                ) : animStatus === 'SIMULATION COMPLETE' ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                    </svg>
+                    ↻ RUN AGAIN
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="6 3 20 12 6 21 6 3" />
+                    </svg>
+                    ▶ START FLOOD
+                  </>
+                )}
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          /* Normal Bottom Controls Dock (outside AR) */
+          <div className="ar-controls-dock ar-ui-interactive">
+            {/* Depth Presets & Controls Row */}
+            <div className="ar-controls-row">
+              <div className="ar-presets-group">
+                <span className="ar-preset-label">Presets:</span>
+                {depthPresets.map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => {
+                      setSelectedDepth(preset);
+                      setCurrentWaterDepth(preset);
+                      setIsAnimated(false);
+                      setAnimStatus('READY');
+                    }}
+                    className={`ar-preset-btn ${selectedDepth === preset && !isAnimated ? 'active' : ''}`}
+                  >
+                    {preset}m
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={() => {
+                  if (isAnimated) {
+                    setIsAnimated(false);
+                    setAnimStatus('READY');
+                  } else {
+                    setIsAnimated(true);
+                  }
+                }}
+                className={`ar-btn-action ${isAnimated ? 'ar-btn-secondary' : 'ar-btn-primary'}`}
+              >
+                {animStatus === 'FLOOD RISING' ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="6" y="4" width="4" height="16" />
+                      <rect x="14" y="4" width="4" height="16" />
+                    </svg>
+                    ⏸ FLOOD RISING
+                  </>
+                ) : animStatus === 'SIMULATION COMPLETE' ? (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                    </svg>
+                    ↻ RUN AGAIN
+                  </>
+                ) : (
+                  <>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polygon points="6 3 20 12 6 21 6 3" />
+                    </svg>
+                    ▶ START FLOOD
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Continuous Depth Slider */}
+            <div className="ar-control-group">
+              <span className="ar-water-meter">
+                Predicted Depth: <strong>+{selectedDepth}m</strong>
+              </span>
+              <input
+                type="range"
+                min="0"
+                max="3.5"
+                step="0.1"
+                value={selectedDepth}
+                onChange={(e) => {
+                  const val = parseFloat(e.target.value);
+                  setSelectedDepth(val);
+                  setCurrentWaterDepth(val);
+                  setIsAnimated(false);
+                  setAnimStatus('READY');
+                }}
+                className="ar-slider"
+              />
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
