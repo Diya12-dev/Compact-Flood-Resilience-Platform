@@ -120,40 +120,6 @@ function ensureSubmersionComponentRegistered() {
   }
 }
 
-// Safely register custom A-Frame water depth synchronization component for strict 1:1 metric height scaling
-function ensureWaterDepthSyncComponentRegistered() {
-  if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['water-depth-sync']) {
-    window.AFRAME.registerComponent('water-depth-sync', {
-      schema: {
-        depth: { type: 'number', default: 1.0 },
-        floorY: { type: 'number', default: -1.6 },
-        anchorX: { type: 'number', default: 0 },
-        anchorZ: { type: 'number', default: -2.5 }
-      },
-      update: function () {
-        const depth = this.data.depth;
-        const floorY = this.data.floorY;
-        const anchorX = this.data.anchorX;
-        const anchorZ = this.data.anchorZ;
-        const surfaceY = floorY + depth;
-
-        // Synchronize surface plane position exactly to floorY + depth
-        const surfacePlane = this.el.querySelector('a-plane');
-        if (surfacePlane && surfacePlane.object3D) {
-          surfacePlane.object3D.position.set(anchorX, surfaceY, anchorZ);
-        }
-
-        // Synchronize volumetric cylinder height and center position
-        const volumeCylinder = this.el.querySelector('a-cylinder');
-        if (volumeCylinder && volumeCylinder.object3D) {
-          volumeCylinder.object3D.position.set(anchorX, floorY + (depth / 2), anchorZ);
-          volumeCylinder.setAttribute('height', Math.max(0.01, depth));
-        }
-      }
-    });
-  }
-}
-
 // Safely register custom A-Frame expansive flowing water surface component with Three.js GLSL Shader
 function ensureWaterComponentsRegistered() {
   if (typeof window !== 'undefined' && window.AFRAME) {
@@ -161,7 +127,7 @@ function ensureWaterComponentsRegistered() {
       window.AFRAME.registerComponent('realistic-flood-water', {
         schema: {
           color: { type: 'color', default: '#0e7490' },
-          radius: { type: 'number', default: 12.5 },
+          radius: { type: 'number', default: 10.0 },
           flowX: { type: 'number', default: 0.4 },
           flowY: { type: 'number', default: 0.3 }
         },
@@ -212,9 +178,9 @@ function ensureWaterComponentsRegistered() {
             uniform float uMaxRadius;
 
             void main() {
-              // Smooth radial falloff near 12.5m outer boundary
+              // Smooth radial falloff near outer boundary
               float distFromCenter = length(vWorldPos.xz);
-              float radialAlpha = 1.0 - smoothstep(8.0, uMaxRadius, distFromCenter);
+              float radialAlpha = 1.0 - smoothstep(6.0, uMaxRadius, distFromCenter);
 
               // World-coordinate directional surface caustics & highlights
               vec2 causticUv = vWorldPos.xz * 1.8 + uTime * uFlowDir * 0.6;
@@ -356,7 +322,6 @@ export default function ARSimulator() {
   useEffect(() => {
     ensureHitTestComponentRegistered();
     ensureSubmersionComponentRegistered();
-    ensureWaterDepthSyncComponentRegistered();
     ensureWaterComponentsRegistered();
   }, []);
 
@@ -517,7 +482,6 @@ export default function ARSimulator() {
   const risk = getRiskDetails(currentWaterDepth);
 
   // WebXR Metric 1:1 Height Calibration:
-  // In WebXR / A-Frame world space, 1 unit = 1 real-world meter.
   // Floor Y is placedAnchor.y (locked floor anchor).
   // Water Surface Y elevates vertically to placedAnchor.y + currentWaterDepth.
   const METRIC_SCALE_FACTOR = 1.0;
@@ -855,29 +819,30 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Expansive Water Volume & Flowing Surface (Strict 1:1 Metric Height Scaling) */}
+          {/* 3D Pre-Flood Translucent Expansive Water Volume & Flowing Surface (Parent Root Anchored at Floor Y) */}
           {isPlaced && (
             <a-entity
-              id="water-simulation-container"
-              water-depth-sync={`depth: ${currentWaterDepth}; floorY: ${placedAnchor.y}; anchorX: ${placedAnchor.x}; anchorZ: ${placedAnchor.z}`}
+              id="flood-root"
+              position={`${placedAnchor.x} ${placedAnchor.y} ${placedAnchor.z}`}
             >
-              {/* Expansive Volumetric Water Depth Body (Fills entire span from floor placedAnchor.y up to waterSurfaceY) */}
+              {/* Expansive Volumetric Water Depth Body (Bottom pinned at local Y = 0, top scaled to local Y = currentWaterDepth) */}
               <a-cylinder
-                radius="12.5"
-                height={Math.max(0.01, currentWaterDepth)}
-                position={`${placedAnchor.x} ${placedAnchor.y + currentWaterDepth / 2} ${placedAnchor.z}`}
+                radius="10"
+                height="1"
+                position={`0 ${currentWaterDepth / 2} 0`}
+                scale={`1 ${Math.max(0.001, currentWaterDepth)} 1`}
                 material={`color: ${risk.waterColor}; opacity: 0.32; transparent: true; side: double; depthWrite: false`}
               ></a-cylinder>
 
-              {/* Expansive Top Surface Plane with World-Coordinate Shader Wave Displacement */}
+              {/* Expansive Top Surface Plane (Positioned locally at Y = currentWaterDepth) */}
               <a-plane
-                realistic-flood-water={`color: ${risk.waterColor}; radius: 12.5; flowX: 0.4; flowY: 0.3`}
-                width="25.0"
-                height="25.0"
+                realistic-flood-water={`color: ${risk.waterColor}; radius: 10; flowX: 0.4; flowY: 0.3`}
+                width="20.0"
+                height="20.0"
                 segments-width="48"
                 segments-height="48"
                 rotation="-90 0 0"
-                position={`${placedAnchor.x} ${waterSurfaceY} ${placedAnchor.z}`}
+                position={`0 ${currentWaterDepth} 0`}
               ></a-plane>
             </a-entity>
           )}
