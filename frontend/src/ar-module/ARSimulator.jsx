@@ -87,48 +87,105 @@ function ensureHitTestComponentRegistered() {
   }
 }
 
-// Safely register custom A-Frame realistic animated flood water & ripple components
+// Safely register custom A-Frame realistic animated flood water component with Three.js GLSL Shader
 function ensureWaterComponentsRegistered() {
   if (typeof window !== 'undefined' && window.AFRAME) {
     if (!window.AFRAME.components['realistic-flood-water']) {
       window.AFRAME.registerComponent('realistic-flood-water', {
-        init: function () {
-          this.time = 0;
-          const mesh = this.el.getObject3D('mesh');
-          if (mesh && mesh.geometry) {
-            this.initialPositions = mesh.geometry.attributes.position.clone();
-          }
+        schema: {
+          color: { type: 'color', default: '#0e7490' },
+          radius: { type: 'number', default: 2.0 }
         },
-        tick: function (t, dt) {
-          this.time += dt * 0.001;
-          const mesh = this.el.getObject3D('mesh');
-          if (mesh && mesh.geometry && this.initialPositions) {
-            const posAttr = mesh.geometry.attributes.position;
-            const initPos = this.initialPositions;
-            for (let i = 0; i < posAttr.count; i++) {
-              const x = initPos.getX(i);
-              const y = initPos.getY(i);
-              // Three overlapping sine waves for subtle liquid wave motion
-              const w1 = Math.sin(x * 1.5 + this.time * 1.2) * 0.015;
-              const w2 = Math.sin(y * 1.8 + this.time * 1.5) * 0.012;
-              const w3 = Math.sin((x + y) * 1.2 + this.time * 0.9) * 0.008;
-              posAttr.setZ(i, initPos.getZ(i) + (w1 + w2 + w3));
-            }
-            posAttr.needsUpdate = true;
-          }
-        }
-      });
-    }
+        init: function () {
+          const THREE = window.THREE || (window.AFRAME && window.AFRAME.THREE);
+          if (!THREE) return;
 
-    if (!window.AFRAME.components['water-ripple-animator']) {
-      window.AFRAME.registerComponent('water-ripple-animator', {
-        init: function () {
-          this.time = 0;
+          this.uniforms = {
+            uTime: { value: 0 },
+            uWaterColor: { value: new THREE.Color(this.data.color) },
+            uMaxRadius: { value: this.data.radius }
+          };
+
+          const vertexShader = `
+            varying vec2 vUv;
+            varying vec3 vWorldPosition;
+            varying float vRadialDistance;
+            uniform float uTime;
+
+            void main() {
+              vUv = uv;
+              vec3 pos = position;
+              vRadialDistance = length(pos.xy);
+
+              // Gerstner wave vertex displacement
+              float w1 = sin(pos.x * 2.5 + uTime * 2.0) * 0.015;
+              float w2 = cos(pos.y * 2.2 + uTime * 1.8) * 0.012;
+              float w3 = sin((pos.x + pos.y) * 1.8 + uTime * 1.4) * 0.008;
+
+              pos.z += (w1 + w2 + w3);
+
+              vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+              vWorldPosition = worldPosition.xyz;
+              gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            }
+          `;
+
+          const fragmentShader = `
+            varying vec2 vUv;
+            varying vec3 vWorldPosition;
+            varying float vRadialDistance;
+            uniform float uTime;
+            uniform vec3 uWaterColor;
+            uniform float uMaxRadius;
+
+            void main() {
+              // Circular radial edge falloff (smooth soft shoreline)
+              float normDist = vRadialDistance / uMaxRadius;
+              float radialAlpha = 1.0 - smoothstep(0.55, 1.0, normDist);
+
+              // Moving caustics / specular highlights
+              float caustic1 = sin(vUv.x * 25.0 + uTime * 2.5) * cos(vUv.y * 25.0 + uTime * 2.5);
+              float caustic2 = sin((vUv.x + vUv.y) * 18.0 - uTime * 1.8);
+              float highlight = pow(clamp(caustic1 + caustic2, 0.0, 1.0), 3.0) * 0.35;
+
+              vec3 finalColor = uWaterColor + vec3(highlight * 0.3, highlight * 0.5, highlight * 0.6);
+              float finalAlpha = (0.28 + highlight * 0.15) * radialAlpha;
+
+              if (finalAlpha < 0.01) discard;
+
+              gl_FragColor = vec4(finalColor, finalAlpha);
+            }
+          `;
+
+          this.material = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            uniforms: this.uniforms,
+            transparent: true,
+            side: THREE.DoubleSide,
+            depthWrite: false
+          });
+
+          const mesh = this.el.getObject3D('mesh');
+          if (mesh) {
+            mesh.material = this.material;
+          } else {
+            this.el.addEventListener('model-loaded', () => {
+              const loadedMesh = this.el.getObject3D('mesh');
+              if (loadedMesh) loadedMesh.material = this.material;
+            });
+          }
+        },
+        update: function () {
+          const THREE = window.THREE || (window.AFRAME && window.AFRAME.THREE);
+          if (this.material && this.material.uniforms && THREE) {
+            this.material.uniforms.uWaterColor.value.set(this.data.color);
+            this.material.uniforms.uMaxRadius.value = this.data.radius;
+          }
         },
         tick: function (t, dt) {
-          this.time += dt * 0.001;
-          if (this.el.object3D) {
-            this.el.object3D.rotation.z = Math.sin(this.time * 0.5) * 0.015;
+          if (this.material && this.material.uniforms) {
+            this.material.uniforms.uTime.value = t * 0.001;
           }
         }
       });
@@ -661,10 +718,10 @@ export default function ARSimulator() {
             <div className="ar-hud-corner-card ar-hud-top-right">
               <span className="ar-hud-corner-title">WATER LEVEL</span>
               <span className="ar-hud-corner-metric">
-                +{currentWaterDepth.toFixed(1)}m
+                +{currentWaterDepth.toFixed(2)}m
               </span>
               <div style={{ fontSize: '0.68rem', color: '#cbd5e1', fontWeight: 700 }}>
-                TARGET {selectedDepth.toFixed(1)}m
+                TARGET: {selectedDepth.toFixed(1)}m
               </div>
               <div className="ar-hud-mini-progress-track">
                 <div
@@ -718,48 +775,26 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Water Surface Visualization (Bounded 3.6m x 3.6m Footprint, 100% World-Space Anchored) */}
+          {/* 3D Pre-Flood Translucent Water Volume & GLSL Animated Surface (Bounded 100% World-Space Anchored) */}
           {isPlaced && (
             <a-entity id="water-simulation-container">
-              {/* Concentric Soft Shoreline Perimeter Base at Floor Level */}
+              {/* Continuous Translucent Cylindrical Water Volume (Extends from Floor Y up to Water Surface Y) */}
+              <a-cylinder
+                radius="2.0"
+                height={Math.max(0.01, currentWaterDepth)}
+                position={`${placedAnchor.x} ${placedAnchor.y + currentWaterDepth / 2} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.18; transparent: true; side: double; depthWrite: false`}
+              ></a-cylinder>
+
+              {/* Subdivided Water Surface Mesh with Custom GLSL Shader Wave Displacement & Radial Edge Falloff */}
               <a-plane
+                realistic-flood-water={`color: ${risk.waterColor}; radius: 2.0`}
                 width="4.0"
                 height="4.0"
-                rotation="-90 0 0"
-                position={`${placedAnchor.x} ${placedAnchor.y + 0.001} ${placedAnchor.z}`}
-                material="color: #075985; opacity: 0.10; transparent: true; side: double"
-              ></a-plane>
-
-              {/* Concentric Feathered Edge Transition Layer */}
-              <a-plane
-                width="3.8"
-                height="3.8"
-                rotation="-90 0 0"
-                position={`${placedAnchor.x} ${waterSurfaceY - 0.004} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.16; transparent: true; side: double`}
-              ></a-plane>
-
-              {/* Subdivided Water Surface Mesh with Overlapping Wave Sine Displacement in A-Frame tick() */}
-              <a-plane
-                realistic-flood-water
-                width="3.6"
-                height="3.6"
-                segments-width="16"
-                segments-height="16"
+                segments-width="24"
+                segments-height="24"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.26; transparent: true; roughness: 0.08; metalness: 0.05; side: double`}
-              ></a-plane>
-
-              {/* Subtle Moving Aquatic Ripple Highlight Overlay */}
-              <a-plane
-                water-ripple-animator
-                width="3.6"
-                height="3.6"
-                rotation="-90 0 0"
-                position={`${placedAnchor.x} ${waterSurfaceY + 0.004} ${placedAnchor.z}`}
-                material="color: #38bdf8; opacity: 0.09; transparent: true; side: double"
-                animation="property: material.opacity; to: 0.14; dir: alternate; dur: 2200; loop: true"
               ></a-plane>
             </a-entity>
           )}
