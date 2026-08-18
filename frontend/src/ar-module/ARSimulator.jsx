@@ -87,7 +87,7 @@ function ensureHitTestComponentRegistered() {
   }
 }
 
-// Helper function to calculate Flood Risk metadata based on predicted flood depth (in meters)
+// Helper function to calculate Flood Risk metadata and aquatic water colors based on predicted flood depth (in meters)
 function getRiskDetails(waterHeight) {
   const percentage = Math.min(100, Math.max(0, Math.round((waterHeight / 3.5) * 100)));
   if (percentage < 30) {
@@ -97,6 +97,7 @@ function getRiskDetails(waterHeight) {
       color: '#10b981',
       bgColor: 'rgba(16, 185, 129, 0.15)',
       borderColor: 'rgba(16, 185, 129, 0.4)',
+      waterColor: '#0284c7',
       warning: 'Low inundation depth predicted. Observe water height relative to ground.'
     };
   } else if (percentage < 60) {
@@ -106,6 +107,7 @@ function getRiskDetails(waterHeight) {
       color: '#f59e0b',
       bgColor: 'rgba(245, 158, 11, 0.15)',
       borderColor: 'rgba(245, 158, 11, 0.4)',
+      waterColor: '#0e7490',
       warning: 'Moderate predicted flood depth over real-world floor surface.'
     };
   } else if (percentage < 80) {
@@ -115,6 +117,7 @@ function getRiskDetails(waterHeight) {
       color: '#f97316',
       bgColor: 'rgba(249, 115, 22, 0.15)',
       borderColor: 'rgba(249, 115, 22, 0.4)',
+      waterColor: '#0369a1',
       warning: 'High flood hazard! Significant inundation height over floor plane.'
     };
   } else {
@@ -124,6 +127,7 @@ function getRiskDetails(waterHeight) {
       color: '#ef4444',
       bgColor: 'rgba(239, 68, 68, 0.2)',
       borderColor: 'rgba(239, 68, 68, 0.5)',
+      waterColor: '#1e3a8a',
       warning: 'CRITICAL INUNDATION! Severe flood height visual representation.'
     };
   }
@@ -525,27 +529,37 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Water Plane (Calibrated 8x8m area) - Rendered Immediately After AR Start */}
+          {/* 3D Pre-Flood Water Visualization Surface (Calibrated 8x8m Translucent Planar Region) */}
           {isPlaced && (
             <a-entity
               id="water-plane-container"
               position={`${placedAnchor.x} ${spatialWaterY} ${placedAnchor.z}`}
             >
+              {/* Outer Flood Inundation Boundary Frame */}
+              <a-plane
+                width="8.2"
+                height="8.2"
+                rotation="-90 0 0"
+                position="0 -0.005 0"
+                material="color: #0284c7; opacity: 0.4; transparent: true; side: double"
+              ></a-plane>
+
+              {/* Main Translucent Aquatic Water Surface Plane */}
               <a-plane
                 width="8"
                 height="8"
                 rotation="-90 0 0"
-                material={`color: ${risk.color}; opacity: 0.65; transparent: true; metalness: 0.1; roughness: 0.1; side: double`}
-                animation="property: material.opacity; to: 0.75; dir: alternate; dur: 1800; loop: true"
+                material={`color: ${risk.waterColor}; opacity: 0.62; transparent: true; roughness: 0.1; metalness: 0.25; side: double`}
+                animation="property: material.opacity; to: 0.72; dir: alternate; dur: 2200; loop: true"
               ></a-plane>
 
-              {/* Subtle Water Surface Mesh Grid Lines */}
+              {/* Subtle Water Surface Mesh Ripple Overlay */}
               <a-plane
                 width="8"
                 height="8"
                 rotation="-90 0 0"
                 position="0 0.01 0"
-                material="color: #ffffff; opacity: 0.22; transparent: true; wireframe: true; side: double"
+                material="color: #38bdf8; opacity: 0.18; transparent: true; wireframe: true; side: double"
               ></a-plane>
             </a-entity>
           )}
