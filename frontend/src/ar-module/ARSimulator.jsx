@@ -87,14 +87,16 @@ function ensureHitTestComponentRegistered() {
   }
 }
 
-// Safely register custom A-Frame realistic animated flood water component with Three.js GLSL Shader
+// Safely register custom A-Frame expansive flowing water surface component with Three.js GLSL Shader
 function ensureWaterComponentsRegistered() {
   if (typeof window !== 'undefined' && window.AFRAME) {
     if (!window.AFRAME.components['realistic-flood-water']) {
       window.AFRAME.registerComponent('realistic-flood-water', {
         schema: {
           color: { type: 'color', default: '#0e7490' },
-          radius: { type: 'number', default: 2.0 }
+          radius: { type: 'number', default: 12.5 },
+          flowX: { type: 'number', default: 0.4 },
+          flowY: { type: 'number', default: 0.3 }
         },
         init: function () {
           const THREE = window.THREE || (window.AFRAME && window.AFRAME.THREE);
@@ -103,53 +105,60 @@ function ensureWaterComponentsRegistered() {
           this.uniforms = {
             uTime: { value: 0 },
             uWaterColor: { value: new THREE.Color(this.data.color) },
-            uMaxRadius: { value: this.data.radius }
+            uMaxRadius: { value: this.data.radius },
+            uFlowDir: { value: new THREE.Vector2(this.data.flowX, this.data.flowY) }
           };
 
           const vertexShader = `
             varying vec2 vUv;
-            varying vec3 vWorldPosition;
-            varying float vRadialDistance;
+            varying vec3 vWorldPos;
             uniform float uTime;
+            uniform vec2 uFlowDir;
 
             void main() {
               vUv = uv;
-              vec3 pos = position;
-              vRadialDistance = length(pos.xy);
+              vec4 worldPos = modelMatrix * vec4(position, 1.0);
+              vWorldPos = worldPos.xyz;
 
-              // Gerstner wave vertex displacement
-              float w1 = sin(pos.x * 2.5 + uTime * 2.0) * 0.015;
-              float w2 = cos(pos.y * 2.2 + uTime * 1.8) * 0.012;
-              float w3 = sin((pos.x + pos.y) * 1.8 + uTime * 1.4) * 0.008;
+              // World coordinate directional flow UVs for continuous fluid motion across floor
+              vec2 flowUv = worldPos.xz + uTime * uFlowDir * 0.8;
 
-              pos.z += (w1 + w2 + w3);
+              // Multi-frequency Gerstner wave vertex displacement
+              float w1 = sin(flowUv.x * 1.5 + flowUv.y * 1.2) * 0.025;
+              float w2 = cos(flowUv.y * 1.8 - flowUv.x * 1.1) * 0.020;
+              float w3 = sin((flowUv.x + flowUv.y) * 1.2) * 0.015;
 
-              vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
-              vWorldPosition = worldPosition.xyz;
-              gl_Position = projectionMatrix * viewMatrix * worldPosition;
+              vec3 displacedPos = position;
+              displacedPos.z += (w1 + w2 + w3);
+
+              vec4 finalWorldPos = modelMatrix * vec4(displacedPos, 1.0);
+              gl_Position = projectionMatrix * viewMatrix * finalWorldPos;
             }
           `;
 
           const fragmentShader = `
             varying vec2 vUv;
-            varying vec3 vWorldPosition;
-            varying float vRadialDistance;
+            varying vec3 vWorldPos;
             uniform float uTime;
             uniform vec3 uWaterColor;
+            uniform vec2 uFlowDir;
             uniform float uMaxRadius;
 
             void main() {
-              // Circular radial edge falloff (smooth soft shoreline)
-              float normDist = vRadialDistance / uMaxRadius;
-              float radialAlpha = 1.0 - smoothstep(0.55, 1.0, normDist);
+              // Smooth radial falloff near 12.5m outer boundary
+              float distFromCenter = length(vWorldPos.xz);
+              float radialAlpha = 1.0 - smoothstep(8.0, uMaxRadius, distFromCenter);
 
-              // Moving caustics / specular highlights
-              float caustic1 = sin(vUv.x * 25.0 + uTime * 2.5) * cos(vUv.y * 25.0 + uTime * 2.5);
-              float caustic2 = sin((vUv.x + vUv.y) * 18.0 - uTime * 1.8);
-              float highlight = pow(clamp(caustic1 + caustic2, 0.0, 1.0), 3.0) * 0.35;
+              // World-coordinate directional surface caustics & highlights
+              vec2 causticUv = vWorldPos.xz * 1.8 + uTime * uFlowDir * 0.6;
 
-              vec3 finalColor = uWaterColor + vec3(highlight * 0.3, highlight * 0.5, highlight * 0.6);
-              float finalAlpha = (0.28 + highlight * 0.15) * radialAlpha;
+              float caustic1 = sin(causticUv.x * 8.0 + uTime * 1.5) * cos(causticUv.y * 8.0 + uTime * 1.5);
+              float caustic2 = sin((causticUv.x + causticUv.y) * 6.0 - uTime * 1.2);
+              float highlight = pow(clamp(caustic1 + caustic2, 0.0, 1.0), 3.0) * 0.4;
+
+              vec3 finalColor = uWaterColor + vec3(highlight * 0.25, highlight * 0.45, highlight * 0.55);
+              // Target realistic opacity ~0.65 with radial shoreline falloff
+              float finalAlpha = (0.55 + highlight * 0.15) * radialAlpha;
 
               if (finalAlpha < 0.01) discard;
 
@@ -181,6 +190,7 @@ function ensureWaterComponentsRegistered() {
           if (this.material && this.material.uniforms && THREE) {
             this.material.uniforms.uWaterColor.value.set(this.data.color);
             this.material.uniforms.uMaxRadius.value = this.data.radius;
+            this.material.uniforms.uFlowDir.value.set(this.data.flowX, this.data.flowY);
           }
         },
         tick: function (t, dt) {
@@ -775,24 +785,16 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Water Volume & GLSL Animated Surface (Bounded 100% World-Space Anchored) */}
+          {/* 3D Pre-Flood Translucent Expansive Water Surface (Size 25.0m, Ground-Level Flowing Fluid) */}
           {isPlaced && (
             <a-entity id="water-simulation-container">
-              {/* Continuous Translucent Cylindrical Water Volume (Extends from Floor Y up to Water Surface Y) */}
-              <a-cylinder
-                radius="2.0"
-                height={Math.max(0.01, currentWaterDepth)}
-                position={`${placedAnchor.x} ${placedAnchor.y + currentWaterDepth / 2} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.18; transparent: true; side: double; depthWrite: false`}
-              ></a-cylinder>
-
-              {/* Subdivided Water Surface Mesh with Custom GLSL Shader Wave Displacement & Radial Edge Falloff */}
+              {/* Expansive Flowing Water Surface Mesh with World-Coordinate Shader Wave Displacement */}
               <a-plane
-                realistic-flood-water={`color: ${risk.waterColor}; radius: 2.0`}
-                width="4.0"
-                height="4.0"
-                segments-width="24"
-                segments-height="24"
+                realistic-flood-water={`color: ${risk.waterColor}; radius: 12.5; flowX: 0.4; flowY: 0.3`}
+                width="25.0"
+                height="25.0"
+                segments-width="48"
+                segments-height="48"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY} ${placedAnchor.z}`}
               ></a-plane>
