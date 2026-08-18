@@ -55,10 +55,29 @@
   display: block;
 }
 
+/* Underwater Submersion Immersive State (Active when camera Y < waterSurfaceY) */
+.ar-dom-overlay-container.underwater-submerged::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(14, 116, 144, 0.32) 0%, rgba(7, 89, 133, 0.52) 100%);
+  backdrop-filter: blur(1.5px) contrast(108%);
+  -webkit-backdrop-filter: blur(1.5px) contrast(108%);
+  pointer-events: none;
+  z-index: 1;
+  animation: underwater-shimmer 3s ease-in-out infinite alternate;
+}
+
+@keyframes underwater-shimmer {
+  0% { opacity: 0.82; }
+  50% { opacity: 0.95; }
+  100% { opacity: 0.85; }
+}
+
 /* Responsive Two-Corner AR HUD Container Overlay */
 .ar-hud-two-corners {
-  position: fixed;
-  inset: 0;
+  position: relative;
+  z-index: 10;
   width: 100vw;
   height: 100vh;
   pointer-events: none;
@@ -499,6 +518,8 @@
 }
 
 .ar-hud-bottom {
+  position: relative;
+  z-index: 10;
   width: 100%;
   background: rgba(15, 23, 42, 0.88);
   backdrop-filter: blur(16px);

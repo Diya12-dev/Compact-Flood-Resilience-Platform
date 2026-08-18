@@ -87,6 +87,39 @@ function ensureHitTestComponentRegistered() {
   }
 }
 
+// Safely register custom A-Frame camera water submersion detection component
+function ensureSubmersionComponentRegistered() {
+  if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['camera-water-submersion']) {
+    window.AFRAME.registerComponent('camera-water-submersion', {
+      schema: {
+        waterSurfaceY: { type: 'number', default: -0.6 },
+        active: { type: 'boolean', default: false }
+      },
+      tick: function () {
+        if (!this.data.active) return;
+        const cameraEl = this.el.querySelector('a-camera') || (this.el.camera && this.el.camera.el);
+        if (!cameraEl || !cameraEl.object3D) return;
+
+        const THREE = window.THREE || (window.AFRAME && window.AFRAME.THREE);
+        if (!THREE) return;
+
+        const worldPos = new THREE.Vector3();
+        cameraEl.object3D.getWorldPosition(worldPos);
+
+        const isSubmerged = worldPos.y < this.data.waterSurfaceY;
+        const overlayEl = document.getElementById('ar-dom-overlay-root');
+        if (overlayEl) {
+          if (isSubmerged) {
+            overlayEl.classList.add('underwater-submerged');
+          } else {
+            overlayEl.classList.remove('underwater-submerged');
+          }
+        }
+      }
+    });
+  }
+}
+
 // Safely register custom A-Frame expansive flowing water surface component with Three.js GLSL Shader
 function ensureWaterComponentsRegistered() {
   if (typeof window !== 'undefined' && window.AFRAME) {
@@ -288,6 +321,7 @@ export default function ARSimulator() {
   // Ensure custom A-Frame components are registered
   useEffect(() => {
     ensureHitTestComponentRegistered();
+    ensureSubmersionComponentRegistered();
     ensureWaterComponentsRegistered();
   }, []);
 
@@ -753,6 +787,7 @@ export default function ARSimulator() {
           ref={sceneRef}
           embedded
           ar-hit-test-listener
+          camera-water-submersion={`waterSurfaceY: ${waterSurfaceY}; active: ${isInARSession && isPlaced}`}
           webxr="enabled: true"
           ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
@@ -785,10 +820,18 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Expansive Water Surface (Size 25.0m, Ground-Level Flowing Fluid) */}
+          {/* 3D Pre-Flood Translucent Expansive Water Volume & Flowing Surface (Fills Floor to Water Height across 0.5m - 3.0m) */}
           {isPlaced && (
             <a-entity id="water-simulation-container">
-              {/* Expansive Flowing Water Surface Mesh with World-Coordinate Shader Wave Displacement */}
+              {/* Expansive Volumetric Water Depth Body (Fills entire span from floor placedAnchor.y up to waterSurfaceY) */}
+              <a-cylinder
+                radius="12.5"
+                height={Math.max(0.01, currentWaterDepth)}
+                position={`${placedAnchor.x} ${placedAnchor.y + currentWaterDepth / 2} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.32; transparent: true; side: double; depthWrite: false`}
+              ></a-cylinder>
+
+              {/* Expansive Top Surface Plane with World-Coordinate Shader Wave Displacement */}
               <a-plane
                 realistic-flood-water={`color: ${risk.waterColor}; radius: 12.5; flowX: 0.4; flowY: 0.3`}
                 width="25.0"
