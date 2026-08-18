@@ -251,10 +251,8 @@ export default function ARSimulator() {
         return;
       }
 
-      // Direct WebXR session request with minimal optional features
-      const session = await navigator.xr.requestSession('immersive-ar', {
-        optionalFeatures: ['hit-test']
-      });
+      // Diagnostic test: Request raw immersive-ar session WITHOUT optionalFeatures
+      const session = await navigator.xr.requestSession('immersive-ar');
 
       // Handle session end lifecycle
       session.addEventListener('end', () => {
@@ -293,7 +291,7 @@ export default function ARSimulator() {
           ref={sceneRef}
           embedded
           ar-hit-test-listener
-          webxr="optionalFeatures: hit-test"
+          webxr="enabled: true"
           ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
           style={{ width: '100%', height: '100%', background: 'transparent' }}
