@@ -8,6 +8,8 @@ function ensureHitTestComponentRegistered() {
     window.AFRAME.registerComponent('ar-hit-test-listener', {
       init: function () {
         this.hitTestSource = null;
+        this.lastPose = null;
+        this.stableCount = 0;
 
         this.el.sceneEl.addEventListener('enter-vr', async () => {
           if (this.el.sceneEl.is('ar-mode')) {
@@ -19,6 +21,8 @@ function ensureHitTestComponentRegistered() {
 
                 session.addEventListener('end', () => {
                   this.hitTestSource = null;
+                  this.lastPose = null;
+                  this.stableCount = 0;
                 });
               } catch (e) {
                 console.warn('WebXR hit-test source request failed:', e);
@@ -29,6 +33,8 @@ function ensureHitTestComponentRegistered() {
 
         this.el.sceneEl.addEventListener('exit-vr', () => {
           this.hitTestSource = null;
+          this.lastPose = null;
+          this.stableCount = 0;
         });
       },
 
@@ -44,11 +50,34 @@ function ensureHitTestComponentRegistered() {
           const pose = hit.getPose(referenceSpace);
           if (pose) {
             const pos = pose.transform.position;
-            this.el.emit('ar-surface-found', {
+            const newPos = {
               x: parseFloat(pos.x.toFixed(3)),
               y: parseFloat(pos.y.toFixed(3)),
               z: parseFloat(pos.z.toFixed(3))
-            });
+            };
+
+            // Require stable consecutive hit-test poses to prevent jitter
+            if (this.lastPose) {
+              const dx = newPos.x - this.lastPose.x;
+              const dy = newPos.y - this.lastPose.y;
+              const dz = newPos.z - this.lastPose.z;
+              const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+              if (dist < 0.3) {
+                this.stableCount++;
+              } else {
+                this.stableCount = 1;
+              }
+            } else {
+              this.stableCount = 1;
+            }
+
+            this.lastPose = newPos;
+
+            // Emit surface found only when pose is stable (>= 2 consecutive frames)
+            if (this.stableCount >= 2) {
+              this.el.emit('ar-surface-found', newPos);
+            }
           }
         } else {
           this.el.emit('ar-surface-lost');
@@ -107,7 +136,7 @@ export default function ARSimulator() {
   const [arError, setArError] = useState(null);
   const [isHitTestSupported, setIsHitTestSupported] = useState(true);
 
-  // Temporary WebXR Diagnostics State
+  // Temporary WebXR Diagnostics State (Dev Mode Only)
   const [showDiagPanel, setShowDiagPanel] = useState(false);
   const [diagLog, setDiagLog] = useState('Click a test button to run diagnostics.');
 
@@ -116,6 +145,9 @@ export default function ARSimulator() {
   const [detectedSurfacePose, setDetectedSurfacePose] = useState({ x: 0, y: -1.6, z: -2.5 });
   const [isPlaced, setIsPlaced] = useState(false);
   const [placedAnchor, setPlacedAnchor] = useState({ x: 0, y: -1.6, z: -2.5 });
+
+  // Spatial Anchor Lock Ref to prevent continuous repositioning jitter
+  const isLockedRef = useRef(false);
 
   // Pre-Flood Water Visualization State (Controlled Depth & Presets)
   const [selectedDepth, setSelectedDepth] = useState(1.0); // Default 1.0m
@@ -174,12 +206,18 @@ export default function ARSimulator() {
       setIsInARSession(false);
       setIsPlaced(false);
       setIsSurfaceDetected(false);
+      isLockedRef.current = false;
     };
 
     const handleSurfaceFound = (evt) => {
       const { x, y, z } = evt.detail;
       setDetectedSurfacePose({ x, y, z });
       setIsSurfaceDetected(true);
+
+      // Auto-update floor anchor ONLY if position is not locked yet
+      if (!isLockedRef.current) {
+        setPlacedAnchor({ x, y, z });
+      }
     };
 
     const handleSurfaceLost = () => {
@@ -222,9 +260,12 @@ export default function ARSimulator() {
   const METRIC_SCALE_FACTOR = 1.0;
   const spatialWaterY = placedAnchor.y + (selectedDepth * METRIC_SCALE_FACTOR);
 
-  // Lock placement on user click/tap
+  // Explicitly lock spatial placement on user tap/click
   const handlePlaceSimulation = () => {
-    setPlacedAnchor(detectedSurfacePose);
+    if (isSurfaceDetected) {
+      setPlacedAnchor(detectedSurfacePose);
+    }
+    isLockedRef.current = true;
     setIsPlaced(true);
   };
 
@@ -261,42 +302,27 @@ export default function ARSimulator() {
       // 1. Request native WebXR immersive AR session
       const session = await navigator.xr.requestSession('immersive-ar');
 
-      console.log('WebXR Session Created Successfully');
-      console.log('session.enabledFeatures:', session.enabledFeatures || 'Not exposed');
-      console.log('session.visibilityState:', session.visibilityState);
-      console.log('session.environmentBlendMode:', session.environmentBlendMode);
+      // Reset placement lock ref
+      isLockedRef.current = false;
 
       // 2. Reference Space Fallback Strategy (local-floor -> local -> viewer)
       let selectedReferenceSpaceType = 'local-floor';
-      let refSpace = null;
-
-      console.log('Trying reference space: local-floor');
       try {
-        refSpace = await session.requestReferenceSpace('local-floor');
+        await session.requestReferenceSpace('local-floor');
         selectedReferenceSpaceType = 'local-floor';
-        console.log('local-floor succeeded');
       } catch (e1) {
-        console.warn('local-floor failed:', e1);
-        console.log('Trying reference space: local');
         try {
-          refSpace = await session.requestReferenceSpace('local');
+          await session.requestReferenceSpace('local');
           selectedReferenceSpaceType = 'local';
-          console.log('local succeeded');
         } catch (e2) {
-          console.warn('local failed:', e2);
-          console.log('Trying reference space: viewer');
           try {
-            refSpace = await session.requestReferenceSpace('viewer');
+            await session.requestReferenceSpace('viewer');
             selectedReferenceSpaceType = 'viewer';
-            console.log('viewer succeeded');
           } catch (e3) {
-            console.error('viewer failed:', e3);
             throw e3;
           }
         }
       }
-
-      console.log('selectedReferenceSpaceType:', selectedReferenceSpaceType);
 
       // 3. Connect session & reference space to Three.js WebGLRenderer.xr
       const vrManager = sceneEl.renderer ? sceneEl.renderer.xr : null;
@@ -319,6 +345,7 @@ export default function ARSimulator() {
           sceneEl.renderer.xr.enabled = false;
         }
         sceneEl.xrSession = null;
+        isLockedRef.current = false;
         setIsInARSession(false);
         setIsPlaced(false);
         setIsSurfaceDetected(false);
@@ -327,19 +354,18 @@ export default function ARSimulator() {
         }
       });
 
-      // 5. Determine hit-test capability from session
+      // 5. Fast AR Start: Instantly establish default spatial position & render water plane
+      setPlacedAnchor({ x: 0, y: -1.6, z: -2.5 });
+      setIsPlaced(true);
+
+      // 6. Determine hit-test capability
       const hasHitTest = session.enabledFeatures
         ? session.enabledFeatures.includes('hit-test')
         : (typeof session.requestHitTestSource === 'function');
 
       setIsHitTestSupported(hasHitTest);
 
-      if (!hasHitTest) {
-        setPlacedAnchor({ x: 0, y: -1.6, z: -2.5 });
-        setIsPlaced(true);
-      }
-
-      // 6. Update A-Frame state & emit enter-vr event for components
+      // 7. Update A-Frame state & emit enter-vr event for components
       if (sceneEl.addState) {
         sceneEl.addState('ar-mode');
       }
@@ -350,15 +376,11 @@ export default function ARSimulator() {
       setIsInARSession(true);
     } catch (err) {
       console.error('WebXR requestSession failed:', err);
-      console.error('Error name:', err?.name);
-      console.error('Error message:', err?.message);
-      console.error('Error stack:', err?.stack);
-
       setArError(formatXRError(err));
     }
   };
 
-  // Diagnostic Action 1: Collect Browser, Security & WebXR Capability Info
+  // Diagnostic Action 1: Collect Browser, Security & WebXR Capability Info (Dev Mode Only)
   const runCapabilityCheck = async () => {
     let log = [];
     log.push('=== TEMPORARY WEBXR DIAGNOSTICS ===');
@@ -366,7 +388,6 @@ export default function ARSimulator() {
     log.push(`URL: ${window.location.href}`);
     log.push('');
 
-    // A. Basic browser/security information
     log.push('[A. Browser & Security]');
     log.push(`Secure Context: ${window.isSecureContext ? 'YES' : 'NO'}`);
     log.push(`Protocol: ${window.location.protocol}`);
@@ -377,7 +398,6 @@ export default function ARSimulator() {
     log.push(`Language: ${navigator.language || 'Unknown'}`);
     log.push('');
 
-    // B. User Agent Parsing
     log.push('[B. Device / UA Analysis]');
     const isAndroid = /Android/i.test(navigator.userAgent);
     const isChrome = /Chrome/i.test(navigator.userAgent) && !/Edg|OPR|Brave/i.test(navigator.userAgent);
@@ -389,7 +409,6 @@ export default function ARSimulator() {
     log.push(`Mobile Device: ${isMobile ? 'YES' : 'NO'}`);
     log.push('');
 
-    // C. WebXR Availability & Capability
     log.push('[C. WebXR Availability]');
     const hasXR = typeof navigator !== 'undefined' && 'xr' in navigator && !!navigator.xr;
     log.push(`typeof navigator.xr: ${typeof (navigator.xr)}`);
@@ -407,7 +426,6 @@ export default function ARSimulator() {
     }
     log.push('');
 
-    // D. Permissions API
     log.push('[D. Permissions API]');
     if (navigator.permissions && navigator.permissions.query) {
       try {
@@ -425,7 +443,7 @@ export default function ARSimulator() {
     setDiagLog(log.join('\n'));
   };
 
-  // Diagnostic Action 2: Run Raw Minimal WebXR Session Test
+  // Diagnostic Action 2: Run Raw Minimal WebXR Session Test (Dev Mode Only)
   const runMinimalSessionTest = async () => {
     let log = [];
     log.push('=== MINIMAL AR SESSION TEST ===');
@@ -436,8 +454,6 @@ export default function ARSimulator() {
       setDiagLog(log.join('\n'));
       return;
     }
-
-    log.push('Executing: await navigator.xr.requestSession("immersive-ar") [NO optionalFeatures]');
 
     try {
       const session = await navigator.xr.requestSession('immersive-ar');
@@ -455,20 +471,10 @@ export default function ARSimulator() {
       }
     } catch (err) {
       console.error('WebXR diagnostic requestSession failed:', err);
-      console.error('Error name:', err?.name);
-      console.error('Error message:', err?.message);
-      console.error('Error stack:', err?.stack);
-
       log.push('');
       log.push('Minimal requestSession: FAILED');
-      log.push('');
       log.push(`Error Name: ${err?.name || 'UndefinedName'}`);
       log.push(`Error Message: ${err?.message || String(err)}`);
-      log.push(`Error Constructor: ${err?.constructor?.name || 'UnknownConstructor'}`);
-      log.push(`String(err): ${String(err)}`);
-      log.push('');
-      log.push('Full Error Stack:');
-      log.push(err?.stack || 'No stack trace available.');
     }
 
     setDiagLog(log.join('\n'));
@@ -499,8 +505,8 @@ export default function ARSimulator() {
           {/* Camera */}
           <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
 
-          {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator (Visible ONLY Before Placement) */}
-          {!isPlaced && isSurfaceDetected && isHitTestSupported && (
+          {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator (Visible ONLY Before Placement Lock) */}
+          {isInARSession && !isLockedRef.current && isSurfaceDetected && isHitTestSupported && (
             <a-entity
               id="placement-indicator"
               position={`${detectedSurfacePose.x} ${detectedSurfacePose.y} ${detectedSurfacePose.z}`}
@@ -519,7 +525,7 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Water Plane (Calibrated 8x8m area) - Rendered ONLY After User Placement */}
+          {/* 3D Water Plane (Calibrated 8x8m area) - Rendered Immediately After AR Start */}
           {isPlaced && (
             <a-entity
               id="water-plane-container"
@@ -606,98 +612,100 @@ export default function ARSimulator() {
           </div>
         )}
 
-        {/* Temporary WebXR Diagnostics Collapsible Panel */}
-        <div className="ar-ui-interactive" style={{ margin: '8px auto', width: '90%', maxWidth: '460px' }}>
-          <button
-            onClick={() => setShowDiagPanel(!showDiagPanel)}
-            style={{
-              width: '100%',
-              padding: '6px 12px',
-              backgroundColor: 'rgba(30, 41, 59, 0.9)',
-              color: '#38bdf8',
-              border: '1px solid rgba(56, 189, 248, 0.4)',
-              borderRadius: '6px',
-              fontSize: '0.75rem',
-              fontWeight: 700,
-              cursor: 'pointer'
-            }}
-          >
-            {showDiagPanel ? '▼ Hide Temporary WebXR Diagnostics' : '▶ TEMPORARY WEBXR DIAGNOSTICS'}
-          </button>
+        {/* Development-Only WebXR Diagnostics Panel (Omitted from Production Build) */}
+        {import.meta.env.DEV && (
+          <div className="ar-ui-interactive" style={{ margin: '8px auto', width: '90%', maxWidth: '460px' }}>
+            <button
+              onClick={() => setShowDiagPanel(!showDiagPanel)}
+              style={{
+                width: '100%',
+                padding: '6px 12px',
+                backgroundColor: 'rgba(30, 41, 59, 0.9)',
+                color: '#38bdf8',
+                border: '1px solid rgba(56, 189, 248, 0.4)',
+                borderRadius: '6px',
+                fontSize: '0.75rem',
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              {showDiagPanel ? '▼ Hide Temporary WebXR Diagnostics' : '▶ TEMPORARY WEBXR DIAGNOSTICS'}
+            </button>
 
-          {showDiagPanel && (
-            <div style={{
-              marginTop: '6px',
-              padding: '12px',
-              backgroundColor: 'rgba(15, 23, 42, 0.95)',
-              border: '1px solid rgba(56, 189, 248, 0.4)',
-              borderRadius: '8px',
-              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px'
-            }}>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  onClick={runCapabilityCheck}
-                  style={{
-                    padding: '6px 10px',
-                    backgroundColor: '#0284c7',
-                    color: '#ffffff',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Run WebXR Capability Test
-                </button>
-                <button
-                  onClick={runMinimalSessionTest}
-                  style={{
-                    padding: '6px 10px',
-                    backgroundColor: '#06b6d4',
-                    color: '#0f172a',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    cursor: 'pointer'
-                  }}
-                >
-                  Run Minimal AR Session Test
-                </button>
-              </div>
-
-              <pre style={{
-                margin: 0,
-                padding: '8px',
-                backgroundColor: '#090d16',
-                color: '#4ade80',
-                fontSize: '0.7rem',
-                fontFamily: 'monospace',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-                maxHeight: '220px',
-                overflowY: 'auto',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '4px'
+            {showDiagPanel && (
+              <div style={{
+                marginTop: '6px',
+                padding: '12px',
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                border: '1px solid rgba(56, 189, 248, 0.4)',
+                borderRadius: '8px',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '8px'
               }}>
-                {diagLog}
-              </pre>
-            </div>
-          )}
-        </div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    onClick={runCapabilityCheck}
+                    style={{
+                      padding: '6px 10px',
+                      backgroundColor: '#0284c7',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '4px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Run WebXR Capability Test
+                  </button>
+                  <button
+                    onClick={runMinimalSessionTest}
+                    style={{
+                      padding: '6px 10px',
+                      backgroundColor: '#06b6d4',
+                      color: '#0f172a',
+                      border: 'none',
+                      borderRadius: '4px',
+                      fontSize: '0.72rem',
+                      fontWeight: 700,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Run Minimal AR Session Test
+                  </button>
+                </div>
 
-        {/* Surface Detection & Tap-to-Place UX Banner inside AR session */}
-        {isInARSession && !isPlaced && isSurfaceDetected && isHitTestSupported && (
+                <pre style={{
+                  margin: 0,
+                  padding: '8px',
+                  backgroundColor: '#090d16',
+                  color: '#4ade80',
+                  fontSize: '0.7rem',
+                  fontFamily: 'monospace',
+                  whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-all',
+                  maxHeight: '220px',
+                  overflowY: 'auto',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  borderRadius: '4px'
+                }}>
+                  {diagLog}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Surface Detection & Tap-to-Lock UX Banner inside AR session */}
+        {isInARSession && !isLockedRef.current && isSurfaceDetected && isHitTestSupported && (
           <div className="ar-placement-banner ar-ui-interactive">
             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff' }}>
               📍 Real-World Floor Detected!
             </span>
             <button onClick={handlePlaceSimulation} className="ar-placement-btn">
-              Tap to Place Simulation
+              Lock Floor Position
             </button>
           </div>
         )}
@@ -712,12 +720,12 @@ export default function ARSimulator() {
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
               {!isInARSession
-                ? 'Tap "Start AR Experience" to begin camera passthrough and floor detection.'
-                : (!isHitTestSupported
-                  ? 'AR Camera Active. Floor hit-testing is unsupported on this device; visualizer rendered at default spatial position.'
-                  : (!isPlaced && !isSurfaceDetected
-                    ? 'Point camera at the ground to place the flood simulation.'
-                    : (isPlaced ? risk.warning : 'Floor detected. Tap "Tap to Place Simulation" to render water plane.')))}
+                ? 'Tap "Start AR Experience" to begin camera passthrough and flood visualization.'
+                : (isLockedRef.current
+                  ? risk.warning
+                  : (isSurfaceDetected
+                    ? 'Floor detected! Tap "Lock Floor Position" to lock spatial anchor.'
+                    : 'Point camera at the ground to detect real-world floor surface.'))}
             </p>
           </div>
         )}
