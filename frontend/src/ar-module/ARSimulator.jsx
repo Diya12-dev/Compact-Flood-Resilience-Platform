@@ -2,54 +2,60 @@ import React, { useState, useEffect, useRef } from 'react';
 import FallbackView from '../components/FallbackView';
 import './ARSimulator.css';
 
-// Register custom A-Frame hit-test listener component for WebXR immersive AR
-if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['ar-hit-test-listener']) {
-  window.AFRAME.registerComponent('ar-hit-test-listener', {
-    init: function () {
-      this.hitTestSource = null;
+// Safely register custom A-Frame hit-test listener component for WebXR Immersive AR
+function ensureHitTestComponentRegistered() {
+  if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['ar-hit-test-listener']) {
+    window.AFRAME.registerComponent('ar-hit-test-listener', {
+      init: function () {
+        this.hitTestSource = null;
 
-      this.el.sceneEl.addEventListener('enter-vr', async () => {
-        if (this.el.sceneEl.is('ar-mode')) {
-          const session = this.el.sceneEl.renderer.xr.getSession();
-          if (session && session.requestHitTestSource) {
-            try {
-              const refSpace = await session.requestReferenceSpace('viewer');
-              this.hitTestSource = await session.requestHitTestSource({ space: refSpace });
-            } catch (e) {
-              console.warn('WebXR hit-test source request failed:', e);
+        this.el.sceneEl.addEventListener('enter-vr', async () => {
+          if (this.el.sceneEl.is('ar-mode')) {
+            const session = this.el.sceneEl.renderer.xr.getSession();
+            if (session && session.requestHitTestSource) {
+              try {
+                const refSpace = await session.requestReferenceSpace('viewer');
+                this.hitTestSource = await session.requestHitTestSource({ space: refSpace });
+
+                session.addEventListener('end', () => {
+                  this.hitTestSource = null;
+                });
+              } catch (e) {
+                console.warn('WebXR hit-test source request failed:', e);
+              }
             }
           }
+        });
+
+        this.el.sceneEl.addEventListener('exit-vr', () => {
+          this.hitTestSource = null;
+        });
+      },
+
+      tick: function () {
+        if (!this.hitTestSource) return;
+        const frame = this.el.sceneEl.frame;
+        if (!frame) return;
+
+        const hitTestResults = frame.getHitTestResults(this.hitTestSource);
+        if (hitTestResults.length > 0) {
+          const hit = hitTestResults[0];
+          const referenceSpace = this.el.sceneEl.renderer.xr.getReferenceSpace();
+          const pose = hit.getPose(referenceSpace);
+          if (pose) {
+            const pos = pose.transform.position;
+            this.el.emit('ar-surface-found', {
+              x: parseFloat(pos.x.toFixed(3)),
+              y: parseFloat(pos.y.toFixed(3)),
+              z: parseFloat(pos.z.toFixed(3))
+            });
+          }
+        } else {
+          this.el.emit('ar-surface-lost');
         }
-      });
-
-      this.el.sceneEl.addEventListener('exit-vr', () => {
-        this.hitTestSource = null;
-      });
-    },
-
-    tick: function () {
-      if (!this.hitTestSource) return;
-      const frame = this.el.sceneEl.frame;
-      if (!frame) return;
-
-      const hitTestResults = frame.getHitTestResults(this.hitTestSource);
-      if (hitTestResults.length > 0) {
-        const hit = hitTestResults[0];
-        const referenceSpace = this.el.sceneEl.renderer.xr.getReferenceSpace();
-        const pose = hit.getPose(referenceSpace);
-        if (pose) {
-          const pos = pose.transform.position;
-          this.el.emit('ar-surface-found', {
-            x: parseFloat(pos.x.toFixed(3)),
-            y: parseFloat(pos.y.toFixed(3)),
-            z: parseFloat(pos.z.toFixed(3))
-          });
-        }
-      } else {
-        this.el.emit('ar-surface-lost');
       }
-    }
-  });
+    });
+  }
 }
 
 // Helper function to calculate Flood Risk metadata based on predicted flood depth (in meters)
@@ -62,7 +68,7 @@ function getRiskDetails(waterHeight) {
       color: '#10b981',
       bgColor: 'rgba(16, 185, 129, 0.15)',
       borderColor: 'rgba(16, 185, 129, 0.4)',
-      warning: 'Low inundation risk. Point camera at floor to position pre-flood visualizer.'
+      warning: 'Low inundation depth predicted. Observe water height relative to ground.'
     };
   } else if (percentage < 60) {
     return {
@@ -71,7 +77,7 @@ function getRiskDetails(waterHeight) {
       color: '#f59e0b',
       bgColor: 'rgba(245, 158, 11, 0.15)',
       borderColor: 'rgba(245, 158, 11, 0.4)',
-      warning: 'Moderate predicted inundation depth. Observe water level relative to floor.'
+      warning: 'Moderate predicted flood depth over real-world floor surface.'
     };
   } else if (percentage < 80) {
     return {
@@ -80,7 +86,7 @@ function getRiskDetails(waterHeight) {
       color: '#f97316',
       bgColor: 'rgba(249, 115, 22, 0.15)',
       borderColor: 'rgba(249, 115, 22, 0.4)',
-      warning: 'High flood hazard! Significant water depth predicted over floor surface.'
+      warning: 'High flood hazard! Significant inundation height over floor plane.'
     };
   } else {
     return {
@@ -95,88 +101,55 @@ function getRiskDetails(waterHeight) {
 }
 
 export default function ARSimulator() {
-  const [cameraStream, setCameraStream] = useState(null);
-  const [cameraError, setCameraError] = useState(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isCheckingCamera, setIsCheckingCamera] = useState(true);
-
-  // WebXR & Spatial Hit-Test Placement State
   const [isWebXRSupported, setIsWebXRSupported] = useState(false);
+  const [isCheckingWebXR, setIsCheckingWebXR] = useState(true);
+  const [isInARSession, setIsInARSession] = useState(false);
+
+  // WebXR Surface Hit-Test Placement State
   const [isSurfaceDetected, setIsSurfaceDetected] = useState(false);
-  const [detectedSurfacePose, setDetectedSurfacePose] = useState({ x: 0, y: -1.6, z: -3 });
+  const [detectedSurfacePose, setDetectedSurfacePose] = useState({ x: 0, y: -1.6, z: -2.5 });
   const [isPlaced, setIsPlaced] = useState(false);
-  const [placedAnchor, setPlacedAnchor] = useState({ x: 0, y: -1.6, z: -3 });
+  const [placedAnchor, setPlacedAnchor] = useState({ x: 0, y: -1.6, z: -2.5 });
 
   // Pre-Flood Water Visualization State (Controlled Depth & Presets)
   const [selectedDepth, setSelectedDepth] = useState(1.0); // Default 1.0m
   const [isAnimated, setIsAnimated] = useState(false); // Optional animation toggle (off by default)
 
   const depthPresets = [0.5, 1.0, 1.5, 2.0, 3.0];
-  const videoRef = useRef(null);
   const sceneRef = useRef(null);
 
-  // Check WebXR Immersive AR Capability & Camera Access
+  // Ensure custom component is registered
+  useEffect(() => {
+    ensureHitTestComponentRegistered();
+  }, []);
+
+  // Check WebXR Immersive AR Session Support
   useEffect(() => {
     let mounted = true;
 
-    // 1. Check WebXR API support
     if (typeof navigator !== 'undefined' && navigator.xr && navigator.xr.isSessionSupported) {
       navigator.xr.isSessionSupported('immersive-ar')
         .then((supported) => {
-          if (mounted) setIsWebXRSupported(supported);
+          if (mounted) {
+            setIsWebXRSupported(supported);
+            setIsCheckingWebXR(false);
+          }
         })
         .catch(() => {
-          if (mounted) setIsWebXRSupported(false);
-        });
-    }
-
-    // 2. Request Camera Feed
-    async function initCamera() {
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        if (mounted) {
-          setCameraError('MediaDevices API not supported on this browser/environment.');
-          setIsCheckingCamera(false);
-        }
-        return;
-      }
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 }
-          },
-          audio: false
-        });
-
-        if (mounted) {
-          setCameraStream(stream);
-          setIsCameraActive(true);
-          setIsCheckingCamera(false);
-
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play().catch((err) => console.warn('Video play deferred:', err));
+          if (mounted) {
+            setIsWebXRSupported(false);
+            setIsCheckingWebXR(false);
           }
-        }
-      } catch (err) {
-        console.warn('Camera access request failed or denied:', err);
-        if (mounted) {
-          setCameraError(err.message || 'Camera permission denied or camera unavailable.');
-          setIsCameraActive(false);
-          setIsCheckingCamera(false);
-        }
+        });
+    } else {
+      if (mounted) {
+        setIsWebXRSupported(false);
+        setIsCheckingWebXR(false);
       }
     }
-
-    initCamera();
 
     return () => {
       mounted = false;
-      if (cameraStream) {
-        cameraStream.getTracks().forEach((track) => track.stop());
-      }
     };
   }, []);
 
@@ -184,6 +157,18 @@ export default function ARSimulator() {
   useEffect(() => {
     const sceneEl = sceneRef.current;
     if (!sceneEl) return;
+
+    const handleEnterVR = () => {
+      if (sceneEl.is('ar-mode')) {
+        setIsInARSession(true);
+      }
+    };
+
+    const handleExitVR = () => {
+      setIsInARSession(false);
+      setIsPlaced(false);
+      setIsSurfaceDetected(false);
+    };
 
     const handleSurfaceFound = (evt) => {
       const { x, y, z } = evt.detail;
@@ -195,22 +180,18 @@ export default function ARSimulator() {
       setIsSurfaceDetected(false);
     };
 
+    sceneEl.addEventListener('enter-vr', handleEnterVR);
+    sceneEl.addEventListener('exit-vr', handleExitVR);
     sceneEl.addEventListener('ar-surface-found', handleSurfaceFound);
     sceneEl.addEventListener('ar-surface-lost', handleSurfaceLost);
 
     return () => {
+      sceneEl.removeEventListener('enter-vr', handleEnterVR);
+      sceneEl.removeEventListener('exit-vr', handleExitVR);
       sceneEl.removeEventListener('ar-surface-found', handleSurfaceFound);
       sceneEl.removeEventListener('ar-surface-lost', handleSurfaceLost);
     };
-  }, [isCheckingCamera]);
-
-  // Update video element when stream is ready
-  useEffect(() => {
-    if (cameraStream && videoRef.current) {
-      videoRef.current.srcObject = cameraStream;
-      videoRef.current.play().catch(() => {});
-    }
-  }, [cameraStream]);
+  }, [isCheckingWebXR]);
 
   // Optional Water Rise Animation Loop (off by default)
   useEffect(() => {
@@ -229,16 +210,11 @@ export default function ARSimulator() {
   // Dynamic Risk Details
   const risk = getRiskDetails(selectedDepth);
 
-  // Active Anchor Pose
-  const currentAnchor = isPlaced
-    ? placedAnchor
-    : (isSurfaceDetected ? detectedSurfacePose : { x: 0, y: -1.6, z: -3 });
-
-  // WebXR 1:1 Metric Calibration:
-  // In A-Frame WebXR world units, 1 unit = 1 real-world meter.
-  // 1.0m selected depth elevates the water plane vertically by exactly +1.0 meter above the floor anchor.
-  const METRIC_SCALE_FACTOR = 1.0; 
-  const spatialWaterY = currentAnchor.y + (selectedDepth * METRIC_SCALE_FACTOR);
+  // WebXR Metric 1:1 Height Calibration:
+  // In WebXR / A-Frame world space, 1 unit = 1 real-world meter.
+  // 1.0m selected depth elevates the water plane vertically by exactly +1.0 meter above locked placed floor anchor.
+  const METRIC_SCALE_FACTOR = 1.0;
+  const spatialWaterY = placedAnchor.y + (selectedDepth * METRIC_SCALE_FACTOR);
 
   // Lock placement on user click/tap
   const handlePlaceSimulation = () => {
@@ -246,29 +222,25 @@ export default function ARSimulator() {
     setIsPlaced(true);
   };
 
-  // Handle retry camera button click
-  const handleRetryCamera = () => {
-    setIsCheckingCamera(true);
-    setCameraError(null);
-    window.location.reload();
+  // Launch WebXR AR Immersive Session (mode: 'ar')
+  const handleStartAR = () => {
+    const sceneEl = sceneRef.current;
+    if (sceneEl) {
+      if (sceneEl.systems && sceneEl.systems.webxr) {
+        sceneEl.systems.webxr.enterVR({ mode: 'ar' });
+      } else if (sceneEl.enterAR) {
+        sceneEl.enterAR();
+      }
+    }
   };
 
-  // If camera is unsupported or denied, render Graceful Fallback View
-  if (!isCheckingCamera && (!isCameraActive || cameraError)) {
-    return <FallbackView errorMessage={cameraError} onRetryCamera={handleRetryCamera} />;
+  // If WebXR is unsupported (e.g. desktop browser), render Graceful Fallback View
+  if (!isCheckingWebXR && !isWebXRSupported) {
+    return <FallbackView errorMessage="Immersive WebXR Spatial AR is unsupported on this device/browser. Please open on an ARCore/ARKit compatible mobile device running Chrome over HTTPS." />;
   }
 
   return (
     <div className="ar-simulator-root">
-      {/* Background Camera Feed Video */}
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className="ar-camera-feed"
-      />
-
       {/* A-Frame 3D AR WebXR Scene */}
       <div className="ar-scene-container">
         <a-scene
@@ -287,7 +259,7 @@ export default function ARSimulator() {
           {/* Camera */}
           <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
 
-          {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator */}
+          {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator (Visible ONLY Before Placement) */}
           {!isPlaced && isSurfaceDetected && (
             <a-entity
               id="placement-indicator"
@@ -295,40 +267,42 @@ export default function ARSimulator() {
               rotation="-90 0 0"
             >
               <a-ring
-                radius-inner="0.6"
-                radius-outer="0.8"
+                radius-inner="0.4"
+                radius-outer="0.6"
                 material="color: #06b6d4; opacity: 0.85; transparent: true; side: double"
                 animation="property: scale; to: 1.2 1.2 1.2; dir: alternate; dur: 800; loop: true"
               ></a-ring>
               <a-circle
-                radius="0.5"
+                radius="0.35"
                 material="color: #38bdf8; opacity: 0.35; transparent: true; side: double"
               ></a-circle>
             </a-entity>
           )}
 
-          {/* 3D Water Plane Anchored to Detected/Placed Real-World Spatial Floor Position */}
-          <a-entity
-            id="water-plane-container"
-            position={`${currentAnchor.x} ${spatialWaterY} ${currentAnchor.z}`}
-          >
-            <a-plane
-              width="40"
-              height="40"
-              rotation="-90 0 0"
-              material={`color: ${risk.color}; opacity: 0.65; transparent: true; metalness: 0.2; roughness: 0.1; side: double`}
-              animation="property: material.opacity; to: 0.75; dir: alternate; dur: 1800; loop: true"
-            ></a-plane>
-            
-            {/* Water Surface Wave Grid Lines */}
-            <a-plane
-              width="40"
-              height="40"
-              rotation="-90 0 0"
-              position="0 0.02 0"
-              material="color: #ffffff; opacity: 0.25; transparent: true; wireframe: true; side: double"
-            ></a-plane>
-          </a-entity>
+          {/* 3D Water Plane (Calibrated 8x8m area) - Rendered ONLY After User Placement */}
+          {isPlaced && (
+            <a-entity
+              id="water-plane-container"
+              position={`${placedAnchor.x} ${spatialWaterY} ${placedAnchor.z}`}
+            >
+              <a-plane
+                width="8"
+                height="8"
+                rotation="-90 0 0"
+                material={`color: ${risk.color}; opacity: 0.65; transparent: true; metalness: 0.1; roughness: 0.1; side: double`}
+                animation="property: material.opacity; to: 0.75; dir: alternate; dur: 1800; loop: true"
+              ></a-plane>
+
+              {/* Subtle Water Surface Mesh Grid Lines */}
+              <a-plane
+                width="8"
+                height="8"
+                rotation="-90 0 0"
+                position="0 0.01 0"
+                material="color: #ffffff; opacity: 0.22; transparent: true; wireframe: true; side: double"
+              ></a-plane>
+            </a-entity>
+          )}
         </a-scene>
       </div>
 
@@ -362,7 +336,7 @@ export default function ARSimulator() {
                 {risk.level} ({risk.percentage}%)
               </span>
             </div>
-            
+
             <div className="ar-risk-bar-container">
               <div
                 className="ar-risk-bar-fill"
@@ -375,8 +349,20 @@ export default function ARSimulator() {
           </div>
         </div>
 
-        {/* Surface Detection & Tap-to-Place UX Banner */}
-        {!isPlaced && isSurfaceDetected && (
+        {/* Start AR Action Banner when not in AR session */}
+        {!isInARSession && (
+          <div className="ar-placement-banner ar-ui-interactive" style={{ margin: 'auto' }}>
+            <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#ffffff' }}>
+              WebXR Spatial AR Supported
+            </span>
+            <button onClick={handleStartAR} className="ar-placement-btn">
+              Start AR Experience
+            </button>
+          </div>
+        )}
+
+        {/* Surface Detection & Tap-to-Place UX Banner inside AR session */}
+        {isInARSession && !isPlaced && isSurfaceDetected && (
           <div className="ar-placement-banner ar-ui-interactive">
             <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#ffffff' }}>
               📍 Real-World Floor Detected!
@@ -387,21 +373,8 @@ export default function ARSimulator() {
           </div>
         )}
 
-        {/* Loading Spinner during Camera Initialization */}
-        {isCheckingCamera && (
-          <div className="ar-instructions-box ar-ui-interactive" style={{ margin: 'auto' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-              <span>Connecting Camera & WebXR Spatial Sensors...</span>
-            </div>
-          </div>
-        )}
-
         {/* User Instructions */}
-        {!isCheckingCamera && (
+        {!isCheckingWebXR && (
           <div className="ar-instructions-box ar-ui-interactive">
             <p className="ar-instructions-text">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#06b6d4" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline', marginRight: '6px', verticalAlign: 'middle' }}>
@@ -409,7 +382,11 @@ export default function ARSimulator() {
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
-              {!isPlaced && !isSurfaceDetected ? 'Point camera at the ground to place the flood simulation.' : risk.warning}
+              {!isInARSession
+                ? 'Tap "Start AR Experience" to begin camera passthrough and floor detection.'
+                : (!isPlaced && !isSurfaceDetected
+                  ? 'Point camera at the ground to place the flood simulation.'
+                  : (isPlaced ? risk.warning : 'Floor detected. Tap "Tap to Place Simulation" to render water plane.'))}
             </p>
           </div>
         )}
