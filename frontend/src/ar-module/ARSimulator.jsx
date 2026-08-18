@@ -274,9 +274,13 @@ export default function ARSimulator() {
 
   // WebXR Metric 1:1 Height Calibration:
   // In WebXR / A-Frame world space, 1 unit = 1 real-world meter.
-  // currentWaterDepth elevates the water plane vertically by exactly +1.0 meter per depth meter above locked floor anchor.
+  // The water volume is bounded horizontally (4m x 4m footprint).
+  // The bottom of the water volume is attached to placedAnchor.y (the floor).
+  // The top of the water volume sits at placedAnchor.y + currentWaterDepth.
   const METRIC_SCALE_FACTOR = 1.0;
-  const spatialWaterY = placedAnchor.y + (currentWaterDepth * METRIC_SCALE_FACTOR);
+  const safeWaterDepth = Math.max(0.05, currentWaterDepth * METRIC_SCALE_FACTOR);
+  const waterVolumeCenterY = placedAnchor.y + (safeWaterDepth / 2);
+  const waterSurfaceY = placedAnchor.y + safeWaterDepth;
 
   // Explicitly lock spatial placement on user tap/click
   const handlePlaceSimulation = () => {
@@ -520,8 +524,96 @@ export default function ARSimulator() {
           <a-light type="ambient" intensity="0.9" color="#ffffff"></a-light>
           <a-light type="directional" position="2 4 -3" intensity="0.8" color="#38bdf8"></a-light>
 
-          {/* Camera */}
-          <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
+          {/* Camera with 3D In-AR HUD Entity attached to view frustum */}
+          <a-camera position="0 1.6 0" look-controls="enabled: true">
+            {/* 3D AR HUD Overlay Panel attached inside WebXR camera view */}
+            {isInARSession && (
+              <a-entity
+                id="ar-3d-hud"
+                position="0 0.18 -1"
+                scale="0.85 0.85 0.85"
+              >
+                {/* HUD Background Panel */}
+                <a-plane
+                  width="0.92"
+                  height="0.62"
+                  material="color: #0f172a; opacity: 0.88; transparent: true; metalness: 0.2; roughness: 0.1"
+                ></a-plane>
+
+                {/* Cyan Border Frame */}
+                <a-plane
+                  width="0.94"
+                  height="0.64"
+                  position="0 0 -0.001"
+                  material="color: #38bdf8; opacity: 0.45; transparent: true"
+                ></a-plane>
+
+                {/* Title */}
+                <a-text
+                  value="PRE-FLOOD AR SIMULATION"
+                  color="#38bdf8"
+                  align="center"
+                  position="0 0.22 0.01"
+                  width="1.8"
+                ></a-text>
+
+                {/* Status Indicator */}
+                <a-text
+                  value={
+                    animStatus === 'FLOOD RISING' ? '● FLOOD RISING' :
+                    animStatus === 'SIMULATION COMPLETE' ? '● COMPLETE' : '● SIMULATION ACTIVE'
+                  }
+                  color={animStatus === 'FLOOD RISING' ? '#06b6d4' : '#10b981'}
+                  align="center"
+                  position="0 0.15 0.01"
+                  width="1.4"
+                ></a-text>
+
+                {/* Live Water Level & Target */}
+                <a-text
+                  value={`WATER LEVEL: +${currentWaterDepth.toFixed(1)}m  (TARGET: ${selectedDepth.toFixed(1)}m)`}
+                  color="#ffffff"
+                  align="center"
+                  position="0 0.06 0.01"
+                  width="1.5"
+                ></a-text>
+
+                {/* Flood Risk */}
+                <a-text
+                  value={`FLOOD RISK: ${risk.level} (${risk.percentage}%)`}
+                  color={risk.color}
+                  align="center"
+                  position="0 -0.03 0.01"
+                  width="1.6"
+                ></a-text>
+
+                {/* Floor Lock State */}
+                <a-text
+                  value={isLockedRef.current ? 'STATUS: FLOOR LOCKED' : (isSurfaceDetected ? 'STATUS: FLOOR DETECTED' : 'STATUS: SCANNING FLOOR')}
+                  color={isLockedRef.current ? '#10b981' : '#38bdf8'}
+                  align="center"
+                  position="0 -0.12 0.01"
+                  width="1.4"
+                ></a-text>
+
+                {/* Progress Track */}
+                <a-plane
+                  width="0.7"
+                  height="0.03"
+                  position="0 -0.2 0.01"
+                  material="color: #1e293b; opacity: 0.9; transparent: true"
+                ></a-plane>
+
+                {/* Progress Fill */}
+                <a-plane
+                  width={`${Math.max(0.01, 0.7 * Math.min(1, currentWaterDepth / selectedDepth))}`}
+                  height="0.03"
+                  position={`${-0.35 + (0.7 * Math.min(1, currentWaterDepth / selectedDepth)) / 2} -0.2 0.015`}
+                  material={`color: ${risk.color}; opacity: 0.95; transparent: true`}
+                ></a-plane>
+              </a-entity>
+            )}
+          </a-camera>
 
           {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator (Visible ONLY Before Placement Lock) */}
           {isInARSession && !isLockedRef.current && isSurfaceDetected && isHitTestSupported && (
@@ -543,37 +635,44 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Water Visualization Surface (Calibrated 8x8m Translucent Planar Region) */}
+          {/* 3D Bounded Water Volume Visualization (4m x 4m Physical Bounded Column) */}
           {isPlaced && (
-            <a-entity
-              id="water-plane-container"
-              position={`${placedAnchor.x} ${spatialWaterY} ${placedAnchor.z}`}
-            >
-              {/* Outer Flood Inundation Boundary Frame */}
+            <a-entity id="water-simulation-container">
+              {/* Outer Floor Footprint Boundary Line */}
               <a-plane
-                width="8.2"
-                height="8.2"
+                width="4.1"
+                height="4.1"
                 rotation="-90 0 0"
-                position="0 -0.005 0"
-                material="color: #0284c7; opacity: 0.4; transparent: true; side: double"
+                position={`${placedAnchor.x} ${placedAnchor.y + 0.002} ${placedAnchor.z}`}
+                material="color: #0284c7; opacity: 0.45; transparent: true; side: double"
               ></a-plane>
 
-              {/* Main Translucent Aquatic Water Surface Plane */}
+              {/* 3D Translucent Water Volume (Extends from Floor Y up to Water Level Y) */}
+              <a-box
+                width="4"
+                depth="4"
+                height={safeWaterDepth}
+                position={`${placedAnchor.x} ${waterVolumeCenterY} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.32; transparent: true; roughness: 0.1; metalness: 0.1; side: double`}
+              ></a-box>
+
+              {/* Top Water Surface Plane */}
               <a-plane
-                width="8"
-                height="8"
+                width="4"
+                height="4"
                 rotation="-90 0 0"
-                material={`color: ${risk.waterColor}; opacity: 0.62; transparent: true; roughness: 0.1; metalness: 0.25; side: double`}
+                position={`${placedAnchor.x} ${waterSurfaceY + 0.005} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.6; transparent: true; roughness: 0.1; metalness: 0.2; side: double`}
                 animation="property: material.opacity; to: 0.72; dir: alternate; dur: 2200; loop: true"
               ></a-plane>
 
-              {/* Subtle Water Surface Mesh Ripple Overlay */}
+              {/* Top Water Surface Mesh Ripple Overlay */}
               <a-plane
-                width="8"
-                height="8"
+                width="4"
+                height="4"
                 rotation="-90 0 0"
-                position="0 0.01 0"
-                material="color: #38bdf8; opacity: 0.18; transparent: true; wireframe: true; side: double"
+                position={`${placedAnchor.x} ${waterSurfaceY + 0.01} ${placedAnchor.z}`}
+                material="color: #38bdf8; opacity: 0.2; transparent: true; wireframe: true; side: double"
               ></a-plane>
             </a-entity>
           )}
