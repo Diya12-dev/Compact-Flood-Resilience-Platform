@@ -87,22 +87,38 @@ function ensureHitTestComponentRegistered() {
   }
 }
 
-// Safely register custom A-Frame animated water ripple component
-function ensureWaterRippleComponentRegistered() {
-  if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['water-ripple-animator']) {
-    window.AFRAME.registerComponent('water-ripple-animator', {
-      init: function () {
-        this.time = 0;
-      },
-      tick: function (t, dt) {
-        this.time += dt * 0.001;
-        // Subtle rotational shift and position wave micro-offset
-        if (this.el.object3D) {
-          this.el.object3D.rotation.z = Math.sin(this.time * 0.8) * 0.02;
-          this.el.object3D.position.y = Math.sin(this.time * 1.5) * 0.003;
+// Safely register custom A-Frame realistic animated water surface & ripple components
+function ensureWaterComponentsRegistered() {
+  if (typeof window !== 'undefined' && window.AFRAME) {
+    if (!window.AFRAME.components['realistic-water-surface']) {
+      window.AFRAME.registerComponent('realistic-water-surface', {
+        init: function () {
+          this.time = 0;
+        },
+        tick: function (t, dt) {
+          this.time += dt * 0.001;
+          if (this.el.object3D) {
+            // Subtle wave motion and opacity breathing in A-Frame tick loop
+            this.el.object3D.rotation.z = Math.sin(this.time * 0.6) * 0.012;
+            this.el.object3D.position.y = Math.sin(this.time * 1.2) * 0.002;
+          }
         }
-      }
-    });
+      });
+    }
+
+    if (!window.AFRAME.components['water-ripple-animator']) {
+      window.AFRAME.registerComponent('water-ripple-animator', {
+        init: function () {
+          this.time = 0;
+        },
+        tick: function (t, dt) {
+          this.time += dt * 0.001;
+          if (this.el.object3D) {
+            this.el.object3D.rotation.z = Math.sin(this.time * 0.8) * 0.02;
+          }
+        }
+      });
+    }
   }
 }
 
@@ -146,7 +162,7 @@ function getRiskDetails(waterHeight) {
       color: '#ef4444',
       bgColor: 'rgba(239, 68, 68, 0.2)',
       borderColor: 'rgba(239, 68, 68, 0.5)',
-      waterColor: '#1e3a8a',
+      waterColor: '#164e63',
       warning: 'CRITICAL INUNDATION! Severe flood height visual representation.'
     };
   }
@@ -169,6 +185,10 @@ export default function ARSimulator() {
   const [isPlaced, setIsPlaced] = useState(false);
   const [placedAnchor, setPlacedAnchor] = useState({ x: 0, y: -1.6, z: -2.5 });
 
+  // Dynamic Device & Screen Orientation Tracking
+  const [screenAngle, setScreenAngle] = useState(0);
+  const [isLandscape, setIsLandscape] = useState(false);
+
   // Spatial Anchor Lock Ref to prevent continuous repositioning jitter
   const isLockedRef = useRef(false);
 
@@ -184,10 +204,49 @@ export default function ARSimulator() {
   const depthPresets = [0.5, 1.0, 1.5, 2.0, 3.0];
   const sceneRef = useRef(null);
 
-  // Ensure custom components are registered
+  // Ensure custom A-Frame components are registered
   useEffect(() => {
     ensureHitTestComponentRegistered();
-    ensureWaterRippleComponentRegistered();
+    ensureWaterComponentsRegistered();
+  }, []);
+
+  // Track physical screen orientation changes (Portrait vs Landscape)
+  useEffect(() => {
+    const updateOrientation = () => {
+      let angle = 0;
+      if (typeof window !== 'undefined') {
+        if (window.screen && window.screen.orientation) {
+          angle = window.screen.orientation.angle || 0;
+        } else if (typeof window.orientation !== 'undefined') {
+          angle = Number(window.orientation) || 0;
+        }
+      }
+
+      const landscape = Math.abs(angle) === 90 || angle === 270 || (typeof window !== 'undefined' && window.innerWidth > window.innerHeight);
+
+      setScreenAngle(angle);
+      setIsLandscape(landscape);
+    };
+
+    updateOrientation();
+
+    if (typeof window !== 'undefined') {
+      if (window.screen && window.screen.orientation) {
+        window.screen.orientation.addEventListener('change', updateOrientation);
+      }
+      window.addEventListener('resize', updateOrientation);
+      window.addEventListener('orientationchange', updateOrientation);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        if (window.screen && window.screen.orientation) {
+          window.screen.orientation.removeEventListener('change', updateOrientation);
+        }
+        window.removeEventListener('resize', updateOrientation);
+        window.removeEventListener('orientationchange', updateOrientation);
+      }
+    };
   }, []);
 
   // Check WebXR Immersive AR Session Support
@@ -297,9 +356,7 @@ export default function ARSimulator() {
 
   // WebXR Metric 1:1 Height Calibration:
   // In WebXR / A-Frame world space, 1 unit = 1 real-world meter.
-  // The water surface is a bounded 3.6m x 3.6m horizontal plane.
-  // Floor Y is placedAnchor.y (locked floor anchor).
-  // Water Surface Y elevates vertically to placedAnchor.y + currentWaterDepth.
+  // The water volume extends from placedAnchor.y (floor) up to placedAnchor.y + currentWaterDepth.
   const METRIC_SCALE_FACTOR = 1.0;
   const waterSurfaceY = placedAnchor.y + (currentWaterDepth * METRIC_SCALE_FACTOR);
 
@@ -546,7 +603,8 @@ export default function ARSimulator() {
       <div
         ref={arHudRootRef}
         id="ar-dom-overlay-root"
-        className={`ar-dom-overlay-container ${isInARSession ? 'active' : ''}`}
+        className={`ar-dom-overlay-container ${isInARSession ? 'active' : ''} ${isLandscape ? 'orientation-landscape' : 'orientation-portrait'}`}
+        data-angle={screenAngle}
       >
         {isInARSession && (
           <div className="ar-hud-two-corners">
@@ -633,48 +691,48 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Water Surface Visualization (Bounded 3.6m x 3.6m Footprint with Feathered Shoreline Edge) */}
+          {/* 3D Pre-Flood Translucent Water Volume & Animated Surface (Bounded 3.6m x 3.6m Footprint) */}
           {isPlaced && (
             <a-entity id="water-simulation-container">
-              {/* Concentric Soft Shoreline Perimeter Base */}
+              {/* Concentric Soft Shoreline Perimeter Base at Floor Level */}
               <a-plane
                 width="4.0"
                 height="4.0"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${placedAnchor.y + 0.001} ${placedAnchor.z}`}
-                material="color: #075985; opacity: 0.16; transparent: true; side: double"
+                material="color: #075985; opacity: 0.15; transparent: true; side: double"
               ></a-plane>
 
-              {/* Concentric Feathered Edge Transition Layer */}
-              <a-plane
-                width="3.8"
-                height="3.8"
-                rotation="-90 0 0"
-                position={`${placedAnchor.x} ${waterSurfaceY - 0.004} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.24; transparent: true; side: double`}
-              ></a-plane>
+              {/* Continuous Translucent Aquatic Water Volume (Extends from Floor Y up to Water Surface Y) */}
+              <a-box
+                width="3.6"
+                depth="3.6"
+                height={Math.max(0.01, currentWaterDepth)}
+                position={`${placedAnchor.x} ${placedAnchor.y + currentWaterDepth / 2} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.22; transparent: true; roughness: 0.18; metalness: 0.05; side: double`}
+              ></a-box>
 
               {/* Main Translucent Aquatic Water Surface Plane (Elevates Vertically with Depth) */}
               <a-plane
+                realistic-water-surface
                 width="3.6"
                 height="3.6"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.32; transparent: true; roughness: 0.12; metalness: 0.08; side: double`}
-                animation="property: material.opacity; to: 0.42; dir: alternate; dur: 2400; loop: true"
+                material={`color: ${risk.waterColor}; opacity: 0.35; transparent: true; roughness: 0.1; metalness: 0.05; side: double`}
               ></a-plane>
 
-              {/* Subtle Water Surface Wireframe Ripple Grid Overlay with Time-Based Tick Animation */}
+              {/* Subtle Water Surface Wireframe Wave Ripple Grid Overlay */}
               <a-plane
                 water-ripple-animator
                 width="3.6"
                 height="3.6"
                 rotation="-90 0 0"
-                position={`${placedAnchor.x} ${waterSurfaceY + 0.008} ${placedAnchor.z}`}
-                material="color: #38bdf8; opacity: 0.18; transparent: true; wireframe: true; side: double"
+                position={`${placedAnchor.x} ${waterSurfaceY + 0.006} ${placedAnchor.z}`}
+                material="color: #38bdf8; opacity: 0.16; transparent: true; wireframe: true; side: double"
               ></a-plane>
 
-              {/* Floating World-Space Depth Badge near Water Boundary */}
+              {/* Floating World-Space Depth Badge near Water Surface Boundary */}
               <a-entity
                 position={`${placedAnchor.x} ${waterSurfaceY + 0.18} ${placedAnchor.z - 1.8}`}
                 rotation="0 0 0"
@@ -831,7 +889,7 @@ export default function ARSimulator() {
                   fontSize: '0.7rem',
                   fontFamily: 'monospace',
                   whiteSpace: 'pre-wrap',
-                  wordBreak: 'break-all',
+                  wordBreak: 'all',
                   maxHeight: '220px',
                   overflowY: 'auto',
                   border: '1px solid rgba(255,255,255,0.1)',

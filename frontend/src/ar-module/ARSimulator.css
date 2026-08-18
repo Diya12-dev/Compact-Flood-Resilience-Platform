@@ -80,6 +80,7 @@
   gap: 4px;
 }
 
+/* Default Positioning */
 .ar-hud-top-left {
   position: fixed;
   top: max(12px, env(safe-area-inset-top, 12px));
@@ -94,7 +95,13 @@
   text-align: right;
 }
 
-/* PORTRAIT SPECIFIC HUD STYLES */
+/* PORTRAIT MODE SPECIFIC STYLES */
+.orientation-portrait .ar-hud-corner-card {
+  min-width: 120px;
+  max-width: min(160px, 42vw);
+  padding: 8px 12px;
+}
+
 @media (orientation: portrait) {
   .ar-hud-corner-card {
     min-width: 120px;
@@ -103,7 +110,23 @@
   }
 }
 
-/* LANDSCAPE SPECIFIC HUD STYLES */
+/* LANDSCAPE MODE SPECIFIC STYLES */
+.orientation-landscape .ar-hud-top-left {
+  top: max(10px, env(safe-area-inset-top, 10px));
+  left: max(16px, env(safe-area-inset-left, 16px));
+}
+
+.orientation-landscape .ar-hud-top-right {
+  top: max(10px, env(safe-area-inset-top, 10px));
+  right: max(16px, env(safe-area-inset-right, 16px));
+}
+
+.orientation-landscape .ar-hud-corner-card {
+  min-width: 140px;
+  max-width: min(190px, 24vw);
+  padding: 6px 12px;
+}
+
 @media (orientation: landscape) {
   .ar-hud-top-left {
     top: max(10px, env(safe-area-inset-top, 10px));
@@ -114,8 +137,8 @@
     right: max(16px, env(safe-area-inset-right, 16px));
   }
   .ar-hud-corner-card {
-    min-width: 135px;
-    max-width: min(220px, 32vw);
+    min-width: 140px;
+    max-width: min(190px, 24vw);
     padding: 6px 12px;
   }
 }
