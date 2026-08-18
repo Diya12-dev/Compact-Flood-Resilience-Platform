@@ -224,16 +224,16 @@ export default function ARSimulator() {
     setIsPlaced(true);
   };
 
-  // Helper to format detailed WebXR DOMExceptions
+  // Helper to format detailed WebXR DOMExceptions without masking
   const formatXRError = (err) => {
-    if (!err) return 'Unknown WebXR Error';
-    if (typeof err === 'string') return err;
-    const name = err.name || 'WebXRError';
-    const msg = err.message || String(err);
-    return `${name}: ${msg}`;
+    if (!err) return 'Unknown WebXR error';
+    return [
+      err.name || 'WebXRError',
+      err.message || String(err)
+    ].join(': ');
   };
 
-  // Launch WebXR AR Immersive Session with Layered Graceful Capability Detection
+  // Launch WebXR AR Immersive Session directly from user touch gesture
   const handleStartAR = async () => {
     setArError(null);
     const sceneEl = sceneRef.current;
@@ -244,64 +244,39 @@ export default function ARSimulator() {
       return;
     }
 
-    // Attempt 1: Full AR with hit-test + dom-overlay
     try {
-      sceneEl.setAttribute('webxr', {
-        optionalFeatures: ['hit-test', 'dom-overlay'],
-        overlayElement: '.ar-ui-overlay',
-        referenceSpaceType: 'local-floor'
+      const isSupported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!isSupported) {
+        setArError('NotSupportedError: This device/browser does not support immersive AR.');
+        return;
+      }
+
+      // Direct WebXR session request with minimal optional features
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        optionalFeatures: ['hit-test']
       });
 
-      if (sceneEl.enterAR) {
-        await sceneEl.enterAR();
-      } else if (sceneEl.systems && sceneEl.systems.webxr) {
-        await sceneEl.systems.webxr.enterVR(false);
+      // Handle session end lifecycle
+      session.addEventListener('end', () => {
+        setIsInARSession(false);
+        setIsPlaced(false);
+        setIsSurfaceDetected(false);
+      });
+
+      // Connect native WebXR session to A-Frame 3D scene & renderer
+      if (sceneEl.systems && sceneEl.systems.webxr) {
+        sceneEl.systems.webxr.onSessionStarted(session);
       }
+
+      setIsInARSession(true);
       setIsHitTestSupported(true);
-      return;
-    } catch (err1) {
-      console.warn('Attempt 1 (hit-test + dom-overlay) failed:', err1);
+    } catch (err) {
+      console.error('WebXR requestSession failed:', err);
+      console.error('Error name:', err?.name);
+      console.error('Error message:', err?.message);
+      console.error('Error stack:', err?.stack);
 
-      // Attempt 2: AR without hit-test (dom-overlay only)
-      try {
-        sceneEl.setAttribute('webxr', {
-          optionalFeatures: ['dom-overlay'],
-          overlayElement: '.ar-ui-overlay',
-          referenceSpaceType: 'local-floor'
-        });
-
-        if (sceneEl.enterAR) {
-          await sceneEl.enterAR();
-        } else if (sceneEl.systems && sceneEl.systems.webxr) {
-          await sceneEl.systems.webxr.enterVR(false);
-        }
-        setIsHitTestSupported(false);
-        setPlacedAnchor({ x: 0, y: -1.6, z: -2.5 });
-        setIsPlaced(true);
-        return;
-      } catch (err2) {
-        console.warn('Attempt 2 (dom-overlay only) failed:', err2);
-
-        // Attempt 3: Direct WebXR requestSession fallback
-        try {
-          const session = await navigator.xr.requestSession('immersive-ar', {
-            optionalFeatures: ['dom-overlay'],
-            domOverlay: { root: document.querySelector('.ar-ui-overlay') || document.body }
-          });
-          if (sceneEl.systems && sceneEl.systems.webxr) {
-            sceneEl.systems.webxr.onSessionStarted(session);
-            setIsInARSession(true);
-            setIsHitTestSupported(false);
-            setPlacedAnchor({ x: 0, y: -1.6, z: -2.5 });
-            setIsPlaced(true);
-            return;
-          }
-        } catch (err3) {
-          console.error('All WebXR AR session attempts failed:', err3);
-          const detailedError = formatXRError(err1 || err2 || err3);
-          setArError(detailedError);
-        }
-      }
+      setArError(formatXRError(err));
     }
   };
 
@@ -318,8 +293,8 @@ export default function ARSimulator() {
           ref={sceneRef}
           embedded
           ar-hit-test-listener
-          webxr="optionalFeatures: hit-test,dom-overlay; overlayElement: .ar-ui-overlay"
-          ar-mode-ui="enabled: true"
+          webxr="optionalFeatures: hit-test"
+          ar-mode-ui="enabled: false"
           vr-mode-ui="enabled: false"
           style={{ width: '100%', height: '100%', background: 'transparent' }}
         >
