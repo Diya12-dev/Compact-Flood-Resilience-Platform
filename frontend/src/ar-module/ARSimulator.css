@@ -46,6 +46,7 @@
   z-index: 9999;
   pointer-events: none;
   display: none;
+  box-sizing: border-box;
 }
 
 .ar-dom-overlay-container.active {
@@ -54,12 +55,13 @@
 
 /* Responsive Two-Corner AR HUD Container Overlay */
 .ar-hud-two-corners {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   pointer-events: none;
+  box-sizing: border-box;
 }
 
 /* Corner Card Base Styling */
@@ -70,15 +72,12 @@
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(56, 189, 248, 0.35);
   border-radius: var(--radius-md);
-  padding: 8px 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  min-width: 125px;
-  max-width: 170px;
-  box-sizing: border-box;
-  overflow: hidden;
 }
 
 .ar-hud-top-left {
@@ -95,12 +94,41 @@
   text-align: right;
 }
 
+/* PORTRAIT SPECIFIC HUD STYLES */
+@media (orientation: portrait) {
+  .ar-hud-corner-card {
+    min-width: 120px;
+    max-width: min(160px, 42vw);
+    padding: 8px 12px;
+  }
+}
+
+/* LANDSCAPE SPECIFIC HUD STYLES */
+@media (orientation: landscape) {
+  .ar-hud-top-left {
+    top: max(10px, env(safe-area-inset-top, 10px));
+    left: max(16px, env(safe-area-inset-left, 16px));
+  }
+  .ar-hud-top-right {
+    top: max(10px, env(safe-area-inset-top, 10px));
+    right: max(16px, env(safe-area-inset-right, 16px));
+  }
+  .ar-hud-corner-card {
+    min-width: 135px;
+    max-width: min(220px, 32vw);
+    padding: 6px 12px;
+  }
+}
+
 .ar-hud-corner-title {
   font-size: clamp(0.62rem, 1.8vw, 0.68rem);
   font-weight: 800;
   color: #94a3b8;
   letter-spacing: 0.5px;
   text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ar-hud-corner-status {
@@ -109,12 +137,14 @@
   display: flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .ar-hud-corner-metric {
   font-size: clamp(0.88rem, 2.5vw, 0.95rem);
   font-weight: 800;
   color: #38bdf8;
+  white-space: nowrap;
 }
 
 .ar-hud-mini-progress-track {

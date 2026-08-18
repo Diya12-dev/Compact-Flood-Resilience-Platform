@@ -87,6 +87,25 @@ function ensureHitTestComponentRegistered() {
   }
 }
 
+// Safely register custom A-Frame animated water ripple component
+function ensureWaterRippleComponentRegistered() {
+  if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['water-ripple-animator']) {
+    window.AFRAME.registerComponent('water-ripple-animator', {
+      init: function () {
+        this.time = 0;
+      },
+      tick: function (t, dt) {
+        this.time += dt * 0.001;
+        // Subtle rotational shift and position wave micro-offset
+        if (this.el.object3D) {
+          this.el.object3D.rotation.z = Math.sin(this.time * 0.8) * 0.02;
+          this.el.object3D.position.y = Math.sin(this.time * 1.5) * 0.003;
+        }
+      }
+    });
+  }
+}
+
 // Helper function to calculate Flood Risk metadata and aquatic water colors based on predicted flood depth (in meters)
 function getRiskDetails(waterHeight) {
   const percentage = Math.min(100, Math.max(0, Math.round((waterHeight / 3.5) * 100)));
@@ -165,9 +184,10 @@ export default function ARSimulator() {
   const depthPresets = [0.5, 1.0, 1.5, 2.0, 3.0];
   const sceneRef = useRef(null);
 
-  // Ensure custom component is registered
+  // Ensure custom components are registered
   useEffect(() => {
     ensureHitTestComponentRegistered();
+    ensureWaterRippleComponentRegistered();
   }, []);
 
   // Check WebXR Immersive AR Session Support
@@ -618,20 +638,20 @@ export default function ARSimulator() {
             <a-entity id="water-simulation-container">
               {/* Concentric Soft Shoreline Perimeter Base */}
               <a-plane
-                width="3.9"
-                height="3.9"
+                width="4.0"
+                height="4.0"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${placedAnchor.y + 0.001} ${placedAnchor.z}`}
-                material="color: #075985; opacity: 0.22; transparent: true; side: double"
+                material="color: #075985; opacity: 0.16; transparent: true; side: double"
               ></a-plane>
 
               {/* Concentric Feathered Edge Transition Layer */}
               <a-plane
-                width="3.75"
-                height="3.75"
+                width="3.8"
+                height="3.8"
                 rotation="-90 0 0"
-                position={`${placedAnchor.x} ${waterSurfaceY - 0.005} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.28; transparent: true; side: double`}
+                position={`${placedAnchor.x} ${waterSurfaceY - 0.004} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.24; transparent: true; side: double`}
               ></a-plane>
 
               {/* Main Translucent Aquatic Water Surface Plane (Elevates Vertically with Depth) */}
@@ -640,18 +660,38 @@ export default function ARSimulator() {
                 height="3.6"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.35; transparent: true; roughness: 0.12; metalness: 0.08; side: double`}
-                animation="property: material.opacity; to: 0.45; dir: alternate; dur: 2400; loop: true"
+                material={`color: ${risk.waterColor}; opacity: 0.32; transparent: true; roughness: 0.12; metalness: 0.08; side: double`}
+                animation="property: material.opacity; to: 0.42; dir: alternate; dur: 2400; loop: true"
               ></a-plane>
 
-              {/* Subtle Water Surface Wireframe Ripple Grid Overlay */}
+              {/* Subtle Water Surface Wireframe Ripple Grid Overlay with Time-Based Tick Animation */}
               <a-plane
+                water-ripple-animator
                 width="3.6"
                 height="3.6"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY + 0.008} ${placedAnchor.z}`}
-                material="color: #38bdf8; opacity: 0.15; transparent: true; wireframe: true; side: double"
+                material="color: #38bdf8; opacity: 0.18; transparent: true; wireframe: true; side: double"
               ></a-plane>
+
+              {/* Floating World-Space Depth Badge near Water Boundary */}
+              <a-entity
+                position={`${placedAnchor.x} ${waterSurfaceY + 0.18} ${placedAnchor.z - 1.8}`}
+                rotation="0 0 0"
+              >
+                <a-plane
+                  width="1.1"
+                  height="0.22"
+                  material="color: #0f172a; opacity: 0.85; transparent: true"
+                ></a-plane>
+                <a-text
+                  value={`FLOOD LEVEL +${currentWaterDepth.toFixed(1)}m`}
+                  color="#38bdf8"
+                  align="center"
+                  position="0 0 0.01"
+                  width="1.6"
+                ></a-text>
+              </a-entity>
             </a-entity>
           )}
         </a-scene>
