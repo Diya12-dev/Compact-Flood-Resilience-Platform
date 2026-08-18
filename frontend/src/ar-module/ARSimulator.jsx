@@ -97,7 +97,7 @@ function getRiskDetails(waterHeight) {
       color: '#10b981',
       bgColor: 'rgba(16, 185, 129, 0.15)',
       borderColor: 'rgba(16, 185, 129, 0.4)',
-      waterColor: '#0284c7',
+      waterColor: '#075985',
       warning: 'Low inundation depth predicted. Observe water height relative to ground.'
     };
   } else if (percentage < 60) {
@@ -117,7 +117,7 @@ function getRiskDetails(waterHeight) {
       color: '#f97316',
       bgColor: 'rgba(249, 115, 22, 0.15)',
       borderColor: 'rgba(249, 115, 22, 0.4)',
-      waterColor: '#0369a1',
+      waterColor: '#155e75',
       warning: 'High flood hazard! Significant inundation height over floor plane.'
     };
   } else {
@@ -274,7 +274,7 @@ export default function ARSimulator() {
 
   // WebXR Metric 1:1 Height Calibration:
   // In WebXR / A-Frame world space, 1 unit = 1 real-world meter.
-  // The water visualization is a bounded 4m x 4m planar surface.
+  // The water surface is a bounded 3.6m x 3.6m horizontal plane.
   // Floor Y is placedAnchor.y (locked floor anchor).
   // Water Surface Y elevates vertically to placedAnchor.y + currentWaterDepth.
   const METRIC_SCALE_FACTOR = 1.0;
@@ -522,101 +522,8 @@ export default function ARSimulator() {
           <a-light type="ambient" intensity="0.9" color="#ffffff"></a-light>
           <a-light type="directional" position="2 4 -3" intensity="0.8" color="#38bdf8"></a-light>
 
-          {/* Camera with Compact 3D In-AR HUD Entity attached to view frustum */}
-          <a-camera position="0 1.6 0" look-controls="enabled: true">
-            {/* Compact 3D AR HUD Overlay Panel attached inside WebXR camera view */}
-            {isInARSession && (
-              <a-entity
-                id="ar-3d-hud"
-                position="0 0.14 -0.9"
-                scale="0.32 0.32 0.32"
-              >
-                {/* HUD Dark Glass Panel */}
-                <a-plane
-                  width="0.82"
-                  height="0.46"
-                  material="color: #0f172a; opacity: 0.88; transparent: true; metalness: 0.1; roughness: 0.2"
-                ></a-plane>
-
-                {/* Cyan Border Frame */}
-                <a-plane
-                  width="0.84"
-                  height="0.48"
-                  position="0 0 -0.001"
-                  material="color: #0284c7; opacity: 0.5; transparent: true"
-                ></a-plane>
-
-                {/* Header Title */}
-                <a-text
-                  value="FLOOD SIMULATION"
-                  color="#38bdf8"
-                  align="center"
-                  position="0 0.16 0.01"
-                  width="1.1"
-                  wrap-count="22"
-                ></a-text>
-
-                {/* Status Indicator */}
-                <a-text
-                  value={
-                    animStatus === 'FLOOD RISING' ? '● FLOOD RISING' :
-                    animStatus === 'SIMULATION COMPLETE' ? '● COMPLETE' : '● SIMULATION ACTIVE'
-                  }
-                  color={animStatus === 'FLOOD RISING' ? '#06b6d4' : '#10b981'}
-                  align="center"
-                  position="0 0.10 0.01"
-                  width="0.95"
-                  wrap-count="24"
-                ></a-text>
-
-                {/* Live Water Level & Target */}
-                <a-text
-                  value={`WATER: +${currentWaterDepth.toFixed(1)}m / ${selectedDepth.toFixed(1)}m`}
-                  color="#ffffff"
-                  align="center"
-                  position="0 0.03 0.01"
-                  width="1.0"
-                  wrap-count="22"
-                ></a-text>
-
-                {/* Flood Risk */}
-                <a-text
-                  value={`RISK: ${risk.level} · ${risk.percentage}%`}
-                  color={risk.color}
-                  align="center"
-                  position="0 -0.04 0.01"
-                  width="1.0"
-                  wrap-count="22"
-                ></a-text>
-
-                {/* Floor Lock State */}
-                <a-text
-                  value={isLockedRef.current ? '● FLOOR LOCKED' : (isSurfaceDetected ? '● FLOOR DETECTED' : '● SCANNING FLOOR')}
-                  color={isLockedRef.current ? '#10b981' : '#38bdf8'}
-                  align="center"
-                  position="0 -0.11 0.01"
-                  width="0.9"
-                  wrap-count="25"
-                ></a-text>
-
-                {/* Progress Track */}
-                <a-plane
-                  width="0.65"
-                  height="0.025"
-                  position="0 -0.17 0.01"
-                  material="color: #1e293b; opacity: 0.9; transparent: true"
-                ></a-plane>
-
-                {/* Progress Fill */}
-                <a-plane
-                  width={`${Math.max(0.01, 0.65 * Math.min(1, currentWaterDepth / selectedDepth))}`}
-                  height="0.025"
-                  position={`${-0.325 + (0.65 * Math.min(1, currentWaterDepth / selectedDepth)) / 2} -0.17 0.015`}
-                  material={`color: ${risk.color}; opacity: 0.95; transparent: true`}
-                ></a-plane>
-              </a-entity>
-            )}
-          </a-camera>
+          {/* Camera */}
+          <a-camera position="0 1.6 0" look-controls="enabled: true"></a-camera>
 
           {/* WebXR Real-World Hit-Test Surface Placement Ring Indicator (Visible ONLY Before Placement Lock) */}
           {isInARSession && !isLockedRef.current && isSurfaceDetected && isHitTestSupported && (
@@ -638,55 +545,45 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Water Surface Visualization (Bounded 4m x 4m Planar Region) */}
+          {/* 3D Pre-Flood Translucent Water Surface Visualization (Bounded 3.6m x 3.6m Footprint with Feathered Shoreline Edge) */}
           {isPlaced && (
             <a-entity id="water-simulation-container">
-              {/* Floor Level Inundation Boundary Perimeter Outline */}
+              {/* Concentric Soft Shoreline Perimeter Base */}
               <a-plane
-                width="4.1"
-                height="4.1"
+                width="3.9"
+                height="3.9"
                 rotation="-90 0 0"
-                position={`${placedAnchor.x} ${placedAnchor.y + 0.002} ${placedAnchor.z}`}
-                material="color: #0284c7; opacity: 0.4; transparent: true; side: double"
+                position={`${placedAnchor.x} ${placedAnchor.y + 0.001} ${placedAnchor.z}`}
+                material="color: #075985; opacity: 0.22; transparent: true; side: double"
+              ></a-plane>
+
+              {/* Concentric Feathered Edge Transition Layer */}
+              <a-plane
+                width="3.75"
+                height="3.75"
+                rotation="-90 0 0"
+                position={`${placedAnchor.x} ${waterSurfaceY - 0.005} ${placedAnchor.z}`}
+                material={`color: ${risk.waterColor}; opacity: 0.28; transparent: true; side: double`}
               ></a-plane>
 
               {/* Main Translucent Aquatic Water Surface Plane (Elevates Vertically with Depth) */}
               <a-plane
-                width="4"
-                height="4"
+                width="3.6"
+                height="3.6"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY} ${placedAnchor.z}`}
-                material={`color: ${risk.waterColor}; opacity: 0.38; transparent: true; roughness: 0.1; metalness: 0.15; side: double`}
-                animation="property: material.opacity; to: 0.48; dir: alternate; dur: 2200; loop: true"
+                material={`color: ${risk.waterColor}; opacity: 0.35; transparent: true; roughness: 0.12; metalness: 0.08; side: double`}
+                animation="property: material.opacity; to: 0.45; dir: alternate; dur: 2400; loop: true"
               ></a-plane>
 
-              {/* Subtle Water Surface Mesh Wireframe Ripple Overlay */}
+              {/* Subtle Water Surface Wireframe Ripple Grid Overlay */}
               <a-plane
-                width="4"
-                height="4"
+                width="3.6"
+                height="3.6"
                 rotation="-90 0 0"
                 position={`${placedAnchor.x} ${waterSurfaceY + 0.008} ${placedAnchor.z}`}
-                material="color: #38bdf8; opacity: 0.18; transparent: true; wireframe: true; side: double"
+                material="color: #38bdf8; opacity: 0.15; transparent: true; wireframe: true; side: double"
               ></a-plane>
-
-              {/* World-Space Floating Flood Depth Badge at Water Boundary */}
-              <a-entity
-                position={`${placedAnchor.x} ${waterSurfaceY + 0.15} ${placedAnchor.z - 2}`}
-                rotation="0 0 0"
-              >
-                <a-plane
-                  width="1.2"
-                  height="0.25"
-                  material="color: #0f172a; opacity: 0.85; transparent: true"
-                ></a-plane>
-                <a-text
-                  value={`FLOOD LEVEL +${currentWaterDepth.toFixed(1)}m`}
-                  color="#38bdf8"
-                  align="center"
-                  position="0 0 0.01"
-                  width="1.8"
-                ></a-text>
-              </a-entity>
             </a-entity>
           )}
         </a-scene>
@@ -694,15 +591,13 @@ export default function ARSimulator() {
 
       {/* UI Overlay Layer */}
       <div className="ar-ui-overlay">
-        {/* In-AR Mode Top Status Panel & Metrics HUD */}
+        {/* In-AR Responsive Two-Corner HUD Overlay */}
         {isInARSession ? (
-          <div className="ar-hud-top ar-ui-interactive">
-            <div className="ar-hud-header-row">
-              <div className="ar-badge">
-                <span className="ar-badge-pulse" />
-                <span>PRE-FLOOD AR SIMULATION</span>
-              </div>
-              <div className="ar-hud-status-chip">
+          <div className="ar-hud-two-corners ar-ui-interactive">
+            {/* Top-Left Corner Panel */}
+            <div className="ar-hud-corner-card">
+              <span className="ar-hud-corner-title">FLOOD SIMULATION</span>
+              <div className="ar-hud-corner-status" style={{ color: animStatus === 'FLOOD RISING' ? '#06b6d4' : '#10b981' }}>
                 <span
                   className="ar-status-dot"
                   style={{
@@ -713,37 +608,26 @@ export default function ARSimulator() {
                 />
                 <span>
                   {animStatus === 'FLOOD RISING' ? 'FLOOD RISING' :
-                   animStatus === 'SIMULATION COMPLETE' ? 'SIMULATION COMPLETE' : 'SIMULATION ACTIVE'}
+                   animStatus === 'SIMULATION COMPLETE' ? 'COMPLETE' : 'ACTIVE'}
                 </span>
+              </div>
+              <div className="ar-hud-corner-title" style={{ marginTop: '2px', color: risk.color }}>
+                RISK: {risk.level} · {risk.percentage}%
               </div>
             </div>
 
-            <div className="ar-hud-metrics-grid">
-              <div className="ar-hud-metric-card">
-                <span className="ar-hud-label">FLOOD DEPTH</span>
-                <span className="ar-hud-val">+{currentWaterDepth.toFixed(1)} m</span>
+            {/* Top-Right Corner Panel */}
+            <div className="ar-hud-corner-card" style={{ alignItems: 'flex-end', textAlign: 'right' }}>
+              <span className="ar-hud-corner-title">WATER LEVEL</span>
+              <span className="ar-hud-corner-metric">
+                +{currentWaterDepth.toFixed(1)}m
+              </span>
+              <div style={{ fontSize: '0.68rem', color: '#cbd5e1', fontWeight: 700 }}>
+                TARGET {selectedDepth.toFixed(1)}m
               </div>
-
-              <div className="ar-hud-metric-card" style={{ borderColor: risk.borderColor }}>
-                <span className="ar-hud-label">FLOOD RISK</span>
-                <span className="ar-hud-val" style={{ color: risk.color }}>
-                  ⚠️ {risk.level} · {risk.percentage}%
-                </span>
-              </div>
-            </div>
-
-            {/* In-AR Flood Level Progress Bar */}
-            <div className="ar-hud-progress-box">
-              <div className="ar-hud-progress-header">
-                <span className="ar-hud-progress-title">FLOOD LEVEL PROGRESS</span>
-                <span className="ar-hud-progress-val">
-                  {currentWaterDepth.toFixed(1)}m / {selectedDepth.toFixed(1)}m
-                </span>
-              </div>
-
-              <div className="ar-hud-progress-bar-track">
+              <div className="ar-hud-mini-progress-track">
                 <div
-                  className="ar-hud-progress-bar-fill"
+                  className="ar-hud-mini-progress-fill"
                   style={{
                     width: `${Math.min(100, Math.max(0, (currentWaterDepth / selectedDepth) * 100))}%`,
                     backgroundColor: risk.color
