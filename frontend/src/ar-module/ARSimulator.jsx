@@ -120,6 +120,40 @@ function ensureSubmersionComponentRegistered() {
   }
 }
 
+// Safely register custom A-Frame water depth synchronization component for strict 1:1 metric height scaling
+function ensureWaterDepthSyncComponentRegistered() {
+  if (typeof window !== 'undefined' && window.AFRAME && !window.AFRAME.components['water-depth-sync']) {
+    window.AFRAME.registerComponent('water-depth-sync', {
+      schema: {
+        depth: { type: 'number', default: 1.0 },
+        floorY: { type: 'number', default: -1.6 },
+        anchorX: { type: 'number', default: 0 },
+        anchorZ: { type: 'number', default: -2.5 }
+      },
+      update: function () {
+        const depth = this.data.depth;
+        const floorY = this.data.floorY;
+        const anchorX = this.data.anchorX;
+        const anchorZ = this.data.anchorZ;
+        const surfaceY = floorY + depth;
+
+        // Synchronize surface plane position exactly to floorY + depth
+        const surfacePlane = this.el.querySelector('a-plane');
+        if (surfacePlane && surfacePlane.object3D) {
+          surfacePlane.object3D.position.set(anchorX, surfaceY, anchorZ);
+        }
+
+        // Synchronize volumetric cylinder height and center position
+        const volumeCylinder = this.el.querySelector('a-cylinder');
+        if (volumeCylinder && volumeCylinder.object3D) {
+          volumeCylinder.object3D.position.set(anchorX, floorY + (depth / 2), anchorZ);
+          volumeCylinder.setAttribute('height', Math.max(0.01, depth));
+        }
+      }
+    });
+  }
+}
+
 // Safely register custom A-Frame expansive flowing water surface component with Three.js GLSL Shader
 function ensureWaterComponentsRegistered() {
   if (typeof window !== 'undefined' && window.AFRAME) {
@@ -310,7 +344,7 @@ export default function ARSimulator() {
   const arHudRootRef = useRef(null);
 
   // Pre-Flood Water Visualization State (Target Depth, Live Depth, Animation Status)
-  const [selectedDepth, setSelectedDepth] = useState(1.0); // Target Depth (e.g. 1.0m, 3.0m)
+  const [selectedDepth, setSelectedDepth] = useState(1.0); // Target Depth (e.g. 0.5m, 1.0m, 3.0m)
   const [currentWaterDepth, setCurrentWaterDepth] = useState(1.0); // Live Animated Depth
   const [animStatus, setAnimStatus] = useState('READY'); // 'READY', 'FLOOD RISING', 'SIMULATION COMPLETE'
   const [isAnimated, setIsAnimated] = useState(false); // Animation active flag
@@ -322,6 +356,7 @@ export default function ARSimulator() {
   useEffect(() => {
     ensureHitTestComponentRegistered();
     ensureSubmersionComponentRegistered();
+    ensureWaterDepthSyncComponentRegistered();
     ensureWaterComponentsRegistered();
   }, []);
 
@@ -452,15 +487,15 @@ export default function ARSimulator() {
     };
   }, [isCheckingWebXR]);
 
-  // Throttled Smooth Flood Animation Loop (~10Hz)
+  // Throttled Smooth Flood Animation Loop (~12Hz) for continuous rising water level
   useEffect(() => {
     let interval;
     if (isAnimated) {
       setAnimStatus('FLOOD RISING');
-      setCurrentWaterDepth(0.1);
+      setCurrentWaterDepth(0.05);
       interval = setInterval(() => {
         setCurrentWaterDepth((prev) => {
-          const next = parseFloat((prev + 0.1).toFixed(2));
+          const next = parseFloat((prev + 0.05).toFixed(2));
           if (next >= selectedDepth) {
             setIsAnimated(false);
             setAnimStatus('SIMULATION COMPLETE');
@@ -468,7 +503,7 @@ export default function ARSimulator() {
           }
           return next;
         });
-      }, 100);
+      }, 80);
     } else {
       if (animStatus !== 'SIMULATION COMPLETE') {
         setCurrentWaterDepth(selectedDepth);
@@ -820,9 +855,12 @@ export default function ARSimulator() {
             </a-entity>
           )}
 
-          {/* 3D Pre-Flood Translucent Expansive Water Volume & Flowing Surface (Fills Floor to Water Height across 0.5m - 3.0m) */}
+          {/* 3D Pre-Flood Translucent Expansive Water Volume & Flowing Surface (Strict 1:1 Metric Height Scaling) */}
           {isPlaced && (
-            <a-entity id="water-simulation-container">
+            <a-entity
+              id="water-simulation-container"
+              water-depth-sync={`depth: ${currentWaterDepth}; floorY: ${placedAnchor.y}; anchorX: ${placedAnchor.x}; anchorZ: ${placedAnchor.z}`}
+            >
               {/* Expansive Volumetric Water Depth Body (Fills entire span from floor placedAnchor.y up to waterSurfaceY) */}
               <a-cylinder
                 radius="12.5"
