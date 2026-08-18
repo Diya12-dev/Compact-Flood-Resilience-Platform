@@ -107,6 +107,10 @@ export default function ARSimulator() {
   const [arError, setArError] = useState(null);
   const [isHitTestSupported, setIsHitTestSupported] = useState(true);
 
+  // Temporary WebXR Diagnostics State
+  const [showDiagPanel, setShowDiagPanel] = useState(false);
+  const [diagLog, setDiagLog] = useState('Click a test button to run diagnostics.');
+
   // WebXR Surface Hit-Test Placement State
   const [isSurfaceDetected, setIsSurfaceDetected] = useState(false);
   const [detectedSurfacePose, setDetectedSurfacePose] = useState({ x: 0, y: -1.6, z: -2.5 });
@@ -278,6 +282,122 @@ export default function ARSimulator() {
     }
   };
 
+  // Diagnostic Action 1: Collect Browser, Security & WebXR Capability Info
+  const runCapabilityCheck = async () => {
+    let log = [];
+    log.push('=== TEMPORARY WEBXR DIAGNOSTICS ===');
+    log.push(`Timestamp: ${new Date().toISOString()}`);
+    log.push(`URL: ${window.location.href}`);
+    log.push('');
+
+    // A. Basic browser/security information
+    log.push('[A. Browser & Security]');
+    log.push(`Secure Context: ${window.isSecureContext ? 'YES' : 'NO'}`);
+    log.push(`Protocol: ${window.location.protocol}`);
+    log.push(`Hostname: ${window.location.hostname}`);
+    log.push(`User Agent: ${navigator.userAgent}`);
+    log.push(`Platform: ${navigator.platform || 'Unknown'}`);
+    log.push(`Vendor: ${navigator.vendor || 'Unknown'}`);
+    log.push(`Language: ${navigator.language || 'Unknown'}`);
+    log.push('');
+
+    // B. User Agent Parsing
+    log.push('[B. Device / UA Analysis]');
+    const isAndroid = /Android/i.test(navigator.userAgent);
+    const isChrome = /Chrome/i.test(navigator.userAgent) && !/Edg|OPR|Brave/i.test(navigator.userAgent);
+    const chromeVer = navigator.userAgent.match(/Chrome\/([\d.]+)/)?.[1] || 'Unknown';
+    const isMobile = /Mobi|Android/i.test(navigator.userAgent);
+    log.push(`Android Detected: ${isAndroid ? 'YES' : 'NO'}`);
+    log.push(`Chrome Detected: ${isChrome ? 'YES' : 'NO'}`);
+    log.push(`Chrome Version: ${chromeVer}`);
+    log.push(`Mobile Device: ${isMobile ? 'YES' : 'NO'}`);
+    log.push('');
+
+    // C. WebXR Availability & Capability
+    log.push('[C. WebXR Availability]');
+    const hasXR = typeof navigator !== 'undefined' && 'xr' in navigator && !!navigator.xr;
+    log.push(`typeof navigator.xr: ${typeof (navigator.xr)}`);
+    log.push(`navigator.xr Exists: ${hasXR ? 'YES' : 'NO'}`);
+
+    if (hasXR) {
+      try {
+        const supported = await navigator.xr.isSessionSupported('immersive-ar');
+        log.push(`isSessionSupported('immersive-ar'): ${supported ? 'YES' : 'NO'}`);
+      } catch (err) {
+        log.push(`isSessionSupported('immersive-ar') ERROR: ${err?.name || err}: ${err?.message || ''}`);
+      }
+    } else {
+      log.push("isSessionSupported('immersive-ar'): UNCHECKED (navigator.xr missing)");
+    }
+    log.push('');
+
+    // D. Permissions API
+    log.push('[D. Permissions API]');
+    if (navigator.permissions && navigator.permissions.query) {
+      try {
+        const camPerm = await navigator.permissions.query({ name: 'camera' });
+        log.push(`Camera Permission: ${camPerm.state}`);
+      } catch (err) {
+        log.push('Camera permission API: unavailable');
+      }
+    } else {
+      log.push('Camera permission API: unavailable');
+    }
+    log.push('WebXR permission API: unavailable');
+    log.push('');
+
+    setDiagLog(log.join('\n'));
+  };
+
+  // Diagnostic Action 2: Run Raw Minimal WebXR Session Test
+  const runMinimalSessionTest = async () => {
+    let log = [];
+    log.push('=== MINIMAL AR SESSION TEST ===');
+    log.push(`Timestamp: ${new Date().toISOString()}`);
+
+    if (!navigator.xr) {
+      log.push('ERROR: navigator.xr is undefined/missing!');
+      setDiagLog(log.join('\n'));
+      return;
+    }
+
+    log.push('Executing: await navigator.xr.requestSession("immersive-ar") [NO optionalFeatures]');
+
+    try {
+      const session = await navigator.xr.requestSession('immersive-ar');
+
+      log.push('');
+      log.push('Minimal immersive-ar requestSession: SUCCESS');
+      log.push(`Session Mode: ${session.mode}`);
+      log.push(`Visibility State: ${session.visibilityState}`);
+
+      try {
+        await session.end();
+        log.push('Diagnostic session ended cleanly via session.end()');
+      } catch (endErr) {
+        log.push(`session.end() note: ${endErr?.message || String(endErr)}`);
+      }
+    } catch (err) {
+      console.error('WebXR diagnostic requestSession failed:', err);
+      console.error('Error name:', err?.name);
+      console.error('Error message:', err?.message);
+      console.error('Error stack:', err?.stack);
+
+      log.push('');
+      log.push('Minimal requestSession: FAILED');
+      log.push('');
+      log.push(`Error Name: ${err?.name || 'UndefinedName'}`);
+      log.push(`Error Message: ${err?.message || String(err)}`);
+      log.push(`Error Constructor: ${err?.constructor?.name || 'UnknownConstructor'}`);
+      log.push(`String(err): ${String(err)}`);
+      log.push('');
+      log.push('Full Error Stack:');
+      log.push(err?.stack || 'No stack trace available.');
+    }
+
+    setDiagLog(log.join('\n'));
+  };
+
   // If WebXR is unsupported (e.g. desktop browser), render Graceful Fallback View
   if (!isCheckingWebXR && !isWebXRSupported) {
     return <FallbackView errorMessage="Immersive WebXR Spatial AR is unsupported on this device/browser. Please open on an ARCore/ARKit compatible mobile device running Chrome over HTTPS." />;
@@ -409,6 +529,90 @@ export default function ARSimulator() {
             )}
           </div>
         )}
+
+        {/* Temporary WebXR Diagnostics Collapsible Panel */}
+        <div className="ar-ui-interactive" style={{ margin: '8px auto', width: '90%', maxWidth: '460px' }}>
+          <button
+            onClick={() => setShowDiagPanel(!showDiagPanel)}
+            style={{
+              width: '100%',
+              padding: '6px 12px',
+              backgroundColor: 'rgba(30, 41, 59, 0.9)',
+              color: '#38bdf8',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              borderRadius: '6px',
+              fontSize: '0.75rem',
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            {showDiagPanel ? '▼ Hide Temporary WebXR Diagnostics' : '▶ TEMPORARY WEBXR DIAGNOSTICS'}
+          </button>
+
+          {showDiagPanel && (
+            <div style={{
+              marginTop: '6px',
+              padding: '12px',
+              backgroundColor: 'rgba(15, 23, 42, 0.95)',
+              border: '1px solid rgba(56, 189, 248, 0.4)',
+              borderRadius: '8px',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={runCapabilityCheck}
+                  style={{
+                    padding: '6px 10px',
+                    backgroundColor: '#0284c7',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Run WebXR Capability Test
+                </button>
+                <button
+                  onClick={runMinimalSessionTest}
+                  style={{
+                    padding: '6px 10px',
+                    backgroundColor: '#06b6d4',
+                    color: '#0f172a',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '0.72rem',
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Run Minimal AR Session Test
+                </button>
+              </div>
+
+              <pre style={{
+                margin: 0,
+                padding: '8px',
+                backgroundColor: '#090d16',
+                color: '#4ade80',
+                fontSize: '0.7rem',
+                fontFamily: 'monospace',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-all',
+                maxHeight: '220px',
+                overflowY: 'auto',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '4px'
+              }}>
+                {diagLog}
+              </pre>
+            </div>
+          )}
+        </div>
 
         {/* Surface Detection & Tap-to-Place UX Banner inside AR session */}
         {isInARSession && !isPlaced && isSurfaceDetected && isHitTestSupported && (
