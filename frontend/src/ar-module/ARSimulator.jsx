@@ -231,6 +231,9 @@ export default function ARSimulator() {
   // Helper to format detailed WebXR DOMExceptions without masking
   const formatXRError = (err) => {
     if (!err) return 'Unknown WebXR error';
+    if (err.name === 'NotAllowedError') {
+      return 'Permission Denied: Camera/AR access was denied. Please allow Camera & AR permissions in Chrome site settings and try again.';
+    }
     return [
       err.name || 'WebXRError',
       err.message || String(err)
@@ -255,28 +258,88 @@ export default function ARSimulator() {
         return;
       }
 
-      // 1. Request native WebXR immersive AR session (proven to succeed on Android)
+      // 1. Request native WebXR immersive AR session
       const session = await navigator.xr.requestSession('immersive-ar');
 
-      // 2. Connect native XR session to A-Frame's Three.js WebGLRenderer
+      console.log('WebXR Session Created Successfully');
+      console.log('session.enabledFeatures:', session.enabledFeatures || 'Not exposed');
+      console.log('session.visibilityState:', session.visibilityState);
+      console.log('session.environmentBlendMode:', session.environmentBlendMode);
+
+      // 2. Reference Space Fallback Strategy (local-floor -> local -> viewer)
+      let selectedReferenceSpaceType = 'local-floor';
+      let refSpace = null;
+
+      console.log('Trying reference space: local-floor');
+      try {
+        refSpace = await session.requestReferenceSpace('local-floor');
+        selectedReferenceSpaceType = 'local-floor';
+        console.log('local-floor succeeded');
+      } catch (e1) {
+        console.warn('local-floor failed:', e1);
+        console.log('Trying reference space: local');
+        try {
+          refSpace = await session.requestReferenceSpace('local');
+          selectedReferenceSpaceType = 'local';
+          console.log('local succeeded');
+        } catch (e2) {
+          console.warn('local failed:', e2);
+          console.log('Trying reference space: viewer');
+          try {
+            refSpace = await session.requestReferenceSpace('viewer');
+            selectedReferenceSpaceType = 'viewer';
+            console.log('viewer succeeded');
+          } catch (e3) {
+            console.error('viewer failed:', e3);
+            throw e3;
+          }
+        }
+      }
+
+      console.log('selectedReferenceSpaceType:', selectedReferenceSpaceType);
+
+      // 3. Connect session & reference space to Three.js WebGLRenderer.xr
       const vrManager = sceneEl.renderer ? sceneEl.renderer.xr : null;
       if (vrManager) {
         vrManager.enabled = true;
+        if (typeof vrManager.setReferenceSpaceType === 'function') {
+          vrManager.setReferenceSpaceType(selectedReferenceSpaceType);
+        }
         await vrManager.setSession(session);
         sceneEl.xrSession = session;
       }
 
-      // 3. Register session end lifecycle cleanup
+      // 4. Session end lifecycle cleanup
       session.addEventListener('end', () => {
-        if (sceneEl.exitVR) {
-          sceneEl.exitVR();
+        if (sceneEl.removeState) {
+          sceneEl.removeState('ar-mode');
+          sceneEl.removeState('vr-mode');
         }
+        if (sceneEl.renderer && sceneEl.renderer.xr) {
+          sceneEl.renderer.xr.enabled = false;
+        }
+        sceneEl.xrSession = null;
         setIsInARSession(false);
         setIsPlaced(false);
         setIsSurfaceDetected(false);
+        if (sceneEl.emit) {
+          sceneEl.emit('exit-vr', { target: sceneEl });
+        }
       });
 
-      // 4. Update A-Frame state and emit enter-vr event for components
+      // 5. Determine hit-test capability from session
+      const hasHitTest = session.enabledFeatures
+        ? session.enabledFeatures.includes('hit-test')
+        : (typeof session.requestHitTestSource === 'function');
+
+      setIsHitTestSupported(hasHitTest);
+
+      if (!hasHitTest) {
+        setPlacedAnchor({ x: 0, y: -1.6, z: -2.5 });
+        setIsPlaced(true);
+      }
+
+      // 6. Update A-Frame state & emit enter-vr event for components
       if (sceneEl.addState) {
         sceneEl.addState('ar-mode');
       }
@@ -285,7 +348,6 @@ export default function ARSimulator() {
       }
 
       setIsInARSession(true);
-      setIsHitTestSupported(true);
     } catch (err) {
       console.error('WebXR requestSession failed:', err);
       console.error('Error name:', err?.name);
