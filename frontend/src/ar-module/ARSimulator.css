@@ -36,6 +36,171 @@
   background: transparent !important;
 }
 
+/* AR DOM Overlay Root Container for WebXR Immersive Session */
+.ar-dom-overlay-container {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  min-width: 0;
+  min-height: 0;
+  z-index: 9999;
+  pointer-events: none;
+  display: none;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.ar-dom-overlay-container.active {
+  display: block;
+}
+
+/* Underwater Submersion Immersive State (Active when camera Y < waterSurfaceY) */
+.ar-dom-overlay-container.underwater-submerged::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(14, 116, 144, 0.32) 0%, rgba(7, 89, 133, 0.52) 100%);
+  backdrop-filter: blur(1.5px) contrast(108%);
+  -webkit-backdrop-filter: blur(1.5px) contrast(108%);
+  pointer-events: none;
+  z-index: 1;
+  animation: underwater-shimmer 3s ease-in-out infinite alternate;
+}
+
+@keyframes underwater-shimmer {
+  0% { opacity: 0.82; }
+  50% { opacity: 0.95; }
+  100% { opacity: 0.85; }
+}
+
+/* Responsive Two-Corner AR HUD Container Overlay */
+.ar-hud-two-corners {
+  position: relative;
+  z-index: 10;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+
+/* Corner Card Base Styling */
+.ar-hud-corner-card {
+  pointer-events: auto;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.38);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-sizing: border-box;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Corner Fixed Positioning with Safe Area Insets */
+.ar-hud-top-left {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top, 10px));
+  left: max(10px, env(safe-area-inset-left, 10px));
+}
+
+.ar-hud-top-right {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top, 10px));
+  right: max(10px, env(safe-area-inset-right, 10px));
+  align-items: flex-end;
+  text-align: right;
+}
+
+/* PORTRAIT MODE SPECIFIC STYLES */
+.orientation-portrait .ar-hud-corner-card {
+  width: min(42vw, 170px);
+  padding: 8px 12px;
+}
+
+@media (orientation: portrait) {
+  .ar-hud-corner-card {
+    width: min(42vw, 170px);
+    padding: 8px 12px;
+  }
+}
+
+/* LANDSCAPE MODE SPECIFIC STYLES */
+.orientation-landscape .ar-hud-top-left {
+  top: max(10px, env(safe-area-inset-top, 10px));
+  left: max(16px, env(safe-area-inset-left, 16px));
+}
+
+.orientation-landscape .ar-hud-top-right {
+  top: max(10px, env(safe-area-inset-top, 10px));
+  right: max(16px, env(safe-area-inset-right, 16px));
+}
+
+.orientation-landscape .ar-hud-corner-card {
+  width: min(28vw, 220px);
+  padding: 6px 12px;
+}
+
+@media (orientation: landscape) {
+  .ar-hud-top-left {
+    top: max(10px, env(safe-area-inset-top, 10px));
+    left: max(16px, env(safe-area-inset-left, 16px));
+  }
+  .ar-hud-top-right {
+    top: max(10px, env(safe-area-inset-top, 10px));
+    right: max(16px, env(safe-area-inset-right, 16px));
+  }
+  .ar-hud-corner-card {
+    width: min(28vw, 220px);
+    padding: 6px 12px;
+  }
+}
+
+.ar-hud-corner-title {
+  font-size: clamp(0.62rem, 1.8vw, 0.68rem);
+  font-weight: 800;
+  color: #94a3b8;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ar-hud-corner-status {
+  font-size: clamp(0.7rem, 2vw, 0.75rem);
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.ar-hud-corner-metric {
+  font-size: clamp(0.88rem, 2.5vw, 0.95rem);
+  font-weight: 800;
+  color: #38bdf8;
+  white-space: nowrap;
+}
+
+.ar-hud-mini-progress-track {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 3px;
+}
+
+.ar-hud-mini-progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.15s ease-out;
+}
+
 /* UI Overlay Layer */
 .ar-ui-overlay {
   position: absolute;
@@ -56,7 +221,7 @@
   pointer-events: auto;
 }
 
-/* Top Header HUD */
+/* Top Header HUD (outside AR) */
 .ar-header-hud {
   display: flex;
   flex-direction: column;
@@ -350,4 +515,57 @@
 
 .ar-btn-secondary:hover, .ar-btn-primary:hover {
   transform: translateY(-1px);
+}
+
+.ar-hud-bottom {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.4);
+  padding-bottom: max(12px, env(safe-area-inset-bottom, 12px));
+}
+
+.ar-hud-lock-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.ar-lock-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-full);
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: #f8fafc;
+  white-space: nowrap;
+}
+
+.ar-hud-instruction {
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ar-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 8px currentColor;
 }
