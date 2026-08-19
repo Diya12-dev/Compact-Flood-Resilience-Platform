@@ -1,16 +1,20 @@
-# Drone & Computer Vision Module (Stage 1, Stage 2 & Stage 3)
+# Drone & Computer Vision Module (Stages 1–5)
 
-Standalone object detection, video processing, and persistent multi-object tracking (MOT) pipeline for the **Compact Flood Resilience Platform**.
+Standalone object detection, video processing, persistent multi-object tracking (MOT), mission geotagging, and mission visualization pipeline for the **Compact Flood Resilience Platform**.
 
-This module provides a lightweight, modular Python detection and tracking engine powered by a pretrained **YOLOv8** model, **ByteTrack**, and **OpenCV**. It detects and tracks people and vehicles in static images and aerial MP4 video feeds, produces annotated visual outputs, and generates structured telemetry JSON.
+This module provides a lightweight, modular Python detection and tracking engine powered by a pretrained **YOLOv8** model, **ByteTrack**, **OpenCV**, and simulated GPS mission geotagging & HUD visualization overlays.
 
 ---
 
 ## 📘 Beginner Concepts & Fundamentals
 
-### 1. Object Detection vs. Object Tracking
-* **Object Detection (Stages 1 & 2):** Identifies objects on isolated frames independently. If a person appears in 10 consecutive frames, detection treats them as 10 unrelated person boxes without knowing they are the exact same individual.
-* **Object Tracking (Stage 3):** Assigns a unique, persistent **Track ID** (e.g. `person ID: 3`, `car ID: 7`) to each detected object and follows that exact object across consecutive video frames as it moves.
+### 1. Object Detection vs. Object Tracking vs. Mission Geotagging vs. Visualization
+* **Object Detection (Stages 1 & 2):** Identifies objects (`person`, `car`, etc.) on isolated frames independently.
+* **Object Tracking (Stage 3):** Assigns a persistent **Track ID** (e.g. `person ID: 3`) to track objects across consecutive video frames as they move.
+* **Mission Geotagging (Stage 4):** Interpolates simulated drone GPS waypoints based on frame timestamps and attaches the drone's observation position (`latitude`, `longitude`) to each frame.
+* **Mission Visualization (Stage 5):** Renders a live telemetry HUD overlay box onto the video stream displaying frame count, video timestamp, detection tallies, simulated mission GPS position, and safety disclaimers.
+
+> **CRITICAL DISTINCTION:** Stage 4 & 5 perform **mission-level geotagging only**. The GPS location represents the **drone's flight/observation position** at that timestamp, NOT the exact ground coordinate of any individual detected person or vehicle. All GPS coordinates are **SIMULATED**.
 
 ### 2. How ByteTrack & Track IDs Work
 * **ByteTrack** is a state-of-the-art Multi-Object Tracking (MOT) algorithm.
@@ -21,6 +25,12 @@ This module provides a lightweight, modular Python detection and tracking engine
 * In Stage 2 video processing, frame sampling (`--stride N`) skipped intermediate frames.
 * In Stage 3 object tracking, continuous processing (`--stride 1`, default) is used so the ByteTrack Kalman filter receives continuous motion vectors, providing high-precision track ID persistence.
 
+### 4. Linear Interpolation & Clamping Logic (Stage 4)
+* **Linear Interpolation:** For a frame timestamp $t$ between waypoints $t_1$ and $t_2$:
+  $$ratio = \frac{t - t_1}{t_2 - t_1}$$
+  $$lat = lat_1 + ratio \cdot (lat_2 - lat_1), \quad lon = lon_1 + ratio \cdot (lon_2 - lon_1)$$
+* **Clamping Behavior:** Timestamps earlier than the first waypoint return the first waypoint location. Timestamps later than the last waypoint return the last waypoint location. No extrapolation is performed.
+
 ---
 
 ## 🛠️ Installation & Setup
@@ -30,53 +40,59 @@ cd Compact-Flood-Resilience-Platform
 pip install -r requirements.txt
 ```
 
-> **Note on Pretrained Weights:** `ultralytics` automatically manages model weights (`yolov8n.pt`) and tracker configs (`bytetrack.yaml`).
-
 ---
 
 ## 🚀 Usage Guide
 
 ### Stage 1: Image Object Detection
 ```bash
-# Run CLI
 python -m ai.drone_cv.detector --image ai/drone_cv/test_data/sample_input.jpg --output output_annotated.jpg --json detection_results.json
-
-# Run Automated Test
 python ai/drone_cv/test_stage1.py
 ```
 
 ### Stage 2: Video Frame-Sampling Object Detection
 ```bash
-# Run CLI
 python -m ai.drone_cv.video_processor --video ai/drone_cv/test_data/videos/test_video.mp4 --stride 5
-
-# Run Automated Test
 python ai/drone_cv/test_stage2.py
 ```
 
 ### Stage 3: Persistent Multi-Object Tracking (ByteTrack)
 ```bash
-# Run CLI
 python -m ai.drone_cv.tracker --video ai/drone_cv/test_data/videos/test_video.mp4 --output tracked_output.mp4 --json tracking_output.json
-
-# Run Automated Test (Runs Stage 1, Stage 2, and Stage 3)
 python ai/drone_cv/test_stage3.py
 ```
 
-#### Stage 3 CLI Options:
-* `--video <path>` *(Required)*: Path to input MP4 video.
-* `--output <path>` *(Optional)*: Output tracked MP4 video path (default: `tracked_<filename>.mp4`).
-* `--json <path>` *(Optional)*: Output structured tracking JSON file path.
-* `--stride <int>` *(Optional)*: Frame sampling stride (default: `1` for continuous tracking).
-* `--tracker <yaml>` *(Optional)*: Tracker config file (default: `bytetrack.yaml`).
-* `--conf <float>` *(Optional)*: Confidence threshold (default: `0.25`).
-* `--model <name>` *(Optional)*: YOLO model file (default: `yolov8n.pt`).
+### Stage 4: Mission Geotagging
+```bash
+python -m ai.drone_cv.geotagger \
+    --tracking-json ai/drone_cv/test_data/videos/tracking_output.json \
+    --waypoints ai/drone_cv/test_data/mission_gps_waypoints.json \
+    --output ai/drone_cv/test_data/videos/geotagged_tracking_output.json
+python ai/drone_cv/test_stage4.py
+```
+
+### Stage 5: Drone Mission Visualization
+```bash
+# Run CLI
+python -m ai.drone_cv.mission_visualizer \
+    --video ai/drone_cv/test_data/videos/tracked_test_video.mp4 \
+    --tracking-json ai/drone_cv/test_data/videos/geotagged_tracking_output.json \
+    --output ai/drone_cv/test_data/videos/mission_visualization.mp4
+
+# Run Automated Test (Runs Stage 1, Stage 2, Stage 3, Stage 4, and Stage 5)
+python ai/drone_cv/test_stage5.py
+```
+
+#### Stage 5 CLI Arguments:
+* `--video <path>` *(Required)*: Path to Stage 3 tracked MP4 video file.
+* `--tracking-json <path>` *(Required)*: Path to Stage 4 geotagged tracking JSON file.
+* `--output <path>` *(Required)*: Path to save final mission visualization MP4 video file.
 
 ---
 
-## 📊 Stage 3 Tracking JSON Schema
+## 📊 Stage 4 Geotagged Tracking JSON Schema
 
-The object tracker outputs frame-level tracking metadata:
+Stage 4 is **100% additive**; it preserves all existing Stage 3 tracking telemetry and adds top-level `geotagging` metadata and frame-level `location`:
 
 ```json
 {
@@ -91,18 +107,26 @@ The object tracker outputs frame-level tracking metadata:
   "sampling_interval": 1,
   "processed_frames": 704,
   "summary": {
-    "total_tracked_detections": 2450,
-    "unique_track_ids_observed": 42,
-    "people_track_ids_count": 30,
-    "vehicle_track_ids_count": 12
+    "total_tracked_detections": 9811,
+    "unique_track_ids_observed": 237,
+    "people_track_ids_count": 195,
+    "vehicle_track_ids_count": 42
+  },
+  "geotagging": {
+    "gps_source": "simulated_mission_path",
+    "note": "Location represents the drone mission/observation position, not the exact ground coordinate of any individual detected person or vehicle."
   },
   "annotated_video_path": "ai/drone_cv/test_data/videos/tracked_test_video.mp4",
   "frame_tracks": [
     {
       "frame_number": 100,
       "timestamp_seconds": 3.34,
-      "people_count": 4,
-      "vehicle_count": 2,
+      "people_count": 8,
+      "vehicle_count": 3,
+      "location": {
+        "latitude": 18.520801,
+        "longitude": 73.857101
+      },
       "tracks": [
         {
           "track_id": 3,
@@ -110,15 +134,7 @@ The object tracker outputs frame-level tracking metadata:
           "class_id": 0,
           "category": "person",
           "confidence": 0.912,
-          "bbox": [100, 200, 150, 320]
-        },
-        {
-          "track_id": 7,
-          "class": "car",
-          "class_id": 2,
-          "category": "vehicle",
-          "confidence": 0.845,
-          "bbox": [400, 250, 550, 380]
+          "bbox": [412, 185, 458, 290]
         }
       ]
     }
@@ -128,9 +144,9 @@ The object tracker outputs frame-level tracking metadata:
 
 ---
 
-## 🔒 Stage 3 Scope Boundaries & Current Limitations
+## 🔒 Stage 5 Scope Boundaries & Limitations
 
-* **No Unique Population Metric Calculation:** Stage 3 provides persistent track IDs across visible frames. Total unique population estimation (e.g. deduplicating track IDs across exit/re-entry or long occlusions) is reserved for later stages.
-* **No Geolocation / GPS Mapping:** Bounding box pixel coordinates are not mapped to geographic latitude/longitude.
-* **No Water / Flood / Road Segmentation:** Stage 3 tracks objects, not water levels or road boundaries.
+* **Simulated Telemetry Overlay:** The HUD displays simulated GPS mission positions labeled as `GPS SOURCE: SIMULATED`.
+* **No Object-Level Geolocation:** Overlay coordinates represent drone observation location, not ground coordinates of detected objects. Bounding boxes retain Stage 3 track ID labels (e.g. `person ID: 3`).
+* **No Photogrammetry / Map APIs:** Rendered cleanly using OpenCV standard library without external mapping dependencies.
 * **No Backend / Supabase / React Integration:** Operates strictly as a standalone CLI / Python module.
