@@ -50,6 +50,7 @@ class DroneObjectDetector:
         model_name: str = "yolov8n.pt",
         confidence_threshold: float = 0.25,
         target_classes_only: bool = True,
+        inference_size: int = 1024,
     ):
         """
         Initialize detector with specified YOLO model and confidence threshold.
@@ -57,13 +58,15 @@ class DroneObjectDetector:
         :param model_name: Path or name of pretrained YOLO model (default: 'yolov8n.pt')
         :param confidence_threshold: Minimum confidence score to retain detection (0.0 - 1.0)
         :param target_classes_only: If True, filters detections to people and vehicles only
+        :param inference_size: Image size / resolution for YOLO model inference (default: 1024)
         """
         self.model_name = model_name
         self.confidence_threshold = confidence_threshold
         self.target_classes_only = target_classes_only
+        self.inference_size = inference_size
 
         # Load pretrained model (Ultralytics handles automatic downloading if not present locally)
-        print(f"[DroneObjectDetector] Loading pretrained YOLO model: {model_name}...")
+        print(f"[DroneObjectDetector] Loading pretrained YOLO model: {model_name} (inference size: {inference_size})...")
         self.model = YOLO(model_name)
         print(f"[DroneObjectDetector] Model '{model_name}' loaded successfully.")
 
@@ -99,10 +102,11 @@ class DroneObjectDetector:
 
         height, width = image_cv.shape[:2]
 
-        # Run inference
+        # Run inference with configurable resolution (Stage 6: imgsz=1024 default)
         results = self.model.predict(
             source=image_cv,
             conf=self.confidence_threshold,
+            imgsz=self.inference_size,
             verbose=False,
         )[0]
 
@@ -281,6 +285,12 @@ def main():
         help="Path to save the detection JSON output",
     )
     parser.add_argument(
+        "--imgsz",
+        type=int,
+        default=1024,
+        help="Inference image resolution (default: 1024)",
+    )
+    parser.add_argument(
         "--all-classes",
         action="store_true",
         help="Detect all COCO classes, not just people and vehicles",
@@ -292,6 +302,7 @@ def main():
         model_name=args.model,
         confidence_threshold=args.conf,
         target_classes_only=not args.all_classes,
+        inference_size=args.imgsz,
     )
 
     result = detector.detect_image(
