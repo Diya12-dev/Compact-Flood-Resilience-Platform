@@ -28,3 +28,7 @@ runs/
 *.onnx
 *.engine
 
+
+# Runtime-generated backend files
+backend/temp_outputs/
+backend/temp_uploads/
