@@ -1,93 +1,140 @@
 import React, { useState } from 'react';
 import { SEVERITY_CONFIG, formatArea, downloadGeoJSON } from '../utils/geoUtils';
 
-// Sample Pune flood zones along Mutha River for instant demo testing
+// Demo flood risk zones for Pune (approximate rectangular polygons)
 const PUNE_SAMPLE_ZONES = [
+  // CRITICAL zones
   {
-    type: 'Feature',
-    id: 'sample-pune-mutha-critical',
-    properties: {
-      name: 'Mutha Riverbed - Deccan Gymkhana',
-      severity: 'CRITICAL',
-      createdAt: new Date().toISOString(),
-    },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [73.8402, 18.5175],
-          [73.8475, 18.5192],
-          [73.8512, 18.5168],
-          [73.8461, 18.5135],
-          [73.8395, 18.5152],
-          [73.8402, 18.5175],
-        ],
-      ],
-    },
+    id: 'sample-pune-1',
+    name: 'Sangamwadi / Mula-Mutha Confluence',
+    severity: 'CRITICAL',
+    coordinates: [
+      [18.530, 73.890],
+      [18.530, 73.900],
+      [18.540, 73.900],
+      [18.540, 73.890],
+      [18.530, 73.890]
+    ],
+    createdAt: new Date().toISOString()
   },
   {
-    type: 'Feature',
-    id: 'sample-pune-sangam-high',
-    properties: {
-      name: 'Sangam Bridge Confluence Zone',
-      severity: 'HIGH',
-      createdAt: new Date().toISOString(),
-    },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [73.8585, 18.5285],
-          [73.8672, 18.5312],
-          [73.8698, 18.5265],
-          [73.8615, 18.5242],
-          [73.8585, 18.5285],
-        ],
-      ],
-    },
+    id: 'sample-pune-2',
+    name: 'Yerawada – Shantinagar / Indiranagar',
+    severity: 'CRITICAL',
+    coordinates: [
+      [18.550, 73.895],
+      [18.550, 73.905],
+      [18.560, 73.905],
+      [18.560, 73.895],
+      [18.550, 73.895]
+    ],
+    createdAt: new Date().toISOString()
   },
   {
-    type: 'Feature',
-    id: 'sample-pune-yerwada-medium',
-    properties: {
-      name: 'Yerwada Low-Lying Floodplain',
-      severity: 'MEDIUM',
-      createdAt: new Date().toISOString(),
-    },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [73.8821, 18.5492],
-          [73.8935, 18.5521],
-          [73.8962, 18.5445],
-          [73.8845, 18.5422],
-          [73.8821, 18.5492],
-        ],
-      ],
-    },
+    id: 'sample-pune-3',
+    name: 'Mundhwa – Baner (North)',
+    severity: 'CRITICAL',
+    coordinates: [
+      [18.560, 73.910],
+      [18.560, 73.920],
+      [18.570, 73.920],
+      [18.570, 73.910],
+      [18.560, 73.910]
+    ],
+    createdAt: new Date().toISOString()
   },
   {
-    type: 'Feature',
-    id: 'sample-pune-kothrud-low',
-    properties: {
-      name: 'Kothrud Runoff Advisory Area',
-      severity: 'LOW',
-      createdAt: new Date().toISOString(),
-    },
-    geometry: {
-      type: 'Polygon',
-      coordinates: [
-        [
-          [73.8052, 18.5085],
-          [73.8162, 18.5112],
-          [73.8195, 18.5042],
-          [73.8081, 18.5015],
-          [73.8052, 18.5085],
-        ],
-      ],
-    },
+    id: 'sample-pune-4',
+    name: 'Kharadi – Viman Nagar',
+    severity: 'CRITICAL',
+    coordinates: [
+      [18.580, 73.925],
+      [18.580, 73.935],
+      [18.590, 73.935],
+      [18.590, 73.925],
+      [18.580, 73.925]
+    ],
+    createdAt: new Date().toISOString()
   },
+  {
+    id: 'sample-pune-5',
+    name: 'Aundh – Pune University',
+    severity: 'CRITICAL',
+    coordinates: [
+      [18.560, 73.880],
+      [18.560, 73.890],
+      [18.570, 73.890],
+      [18.570, 73.880],
+      [18.560, 73.880]
+    ],
+    createdAt: new Date().toISOString()
+  },
+  // HIGH zones
+  {
+    id: 'sample-pune-6',
+    name: 'Khadki – Bhagewadi',
+    severity: 'HIGH',
+    coordinates: [
+      [18.530, 73.950],
+      [18.530, 73.960],
+      [18.540, 73.960],
+      [18.540, 73.950],
+      [18.530, 73.950]
+    ],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'sample-pune-7',
+    name: 'Hadapsar – Kalyani Nagar',
+    severity: 'HIGH',
+    coordinates: [
+      [18.530, 73.940],
+      [18.530, 73.950],
+      [18.540, 73.950],
+      [18.540, 73.940],
+      [18.530, 73.940]
+    ],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'sample-pune-8',
+    name: 'Warje – Mundhwa East',
+    severity: 'HIGH',
+    coordinates: [
+      [18.540, 73.870],
+      [18.540, 73.880],
+      [18.550, 73.880],
+      [18.550, 73.870],
+      [18.540, 73.870]
+    ],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'sample-pune-9',
+    name: 'Bhosari – Pimpri',
+    severity: 'HIGH',
+    coordinates: [
+      [18.600, 73.880],
+      [18.600, 73.890],
+      [18.610, 73.890],
+      [18.610, 73.880],
+      [18.600, 73.880]
+    ],
+    createdAt: new Date().toISOString()
+  },
+  {
+    id: 'sample-pune-10',
+    name: 'Kasarwadi – Chinchwad',
+    severity: 'HIGH',
+    coordinates: [
+      [18.610, 73.940],
+      [18.610, 73.950],
+      [18.620, 73.950],
+      [18.620, 73.940],
+      [18.610, 73.940]
+    ],
+    createdAt: new Date().toISOString()
+  }
 ];
 
 export default function FloodZonePanel({
@@ -114,10 +161,6 @@ export default function FloodZonePanel({
   const geoJsonFeatureCollection = {
     type: 'FeatureCollection',
     name: 'Pune_Flood_Resilience_Zones',
-    crs: {
-      type: 'name',
-      properties: { name: 'urn:ogc:def:crs:OGC:1.3:CRS84' },
-    },
     features: zones.map((z) => ({
       type: 'Feature',
       id: z.id,
@@ -285,6 +328,7 @@ export default function FloodZonePanel({
                 </button>
               )}
             </div>
+            <p className="demo-disclaimer">Demo risk zones — approximate boundaries for visualization.</p>
           </div>
 
           {/* Zones Listing */}

@@ -8,15 +8,15 @@
   --bg-surface-raised: #1e293b;
   --bg-card: rgba(15, 23, 42, 0.85);
   --bg-glass: rgba(15, 23, 42, 0.75);
-  
+
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-focus: #38bdf8;
   --border-glass: rgba(255, 255, 255, 0.12);
-  
+
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
-  
+
   /* Primary Accent & Flood Severities */
   --accent-cyan: #38bdf8;
   --accent-blue: #2563eb;
@@ -28,22 +28,26 @@
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-heading: 'Outfit', var(--font-sans);
   --font-mono: 'JetBrains Mono', monospace;
-  
+
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  
+
   --shadow-hud: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   --shadow-glow: 0 0 20px rgba(56, 189, 248, 0.25);
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -60,13 +64,16 @@ html, body, #root {
   width: 6px;
   height: 6px;
 }
+
 ::-webkit-scrollbar-track {
   background: rgba(0, 0, 0, 0.2);
 }
+
 ::-webkit-scrollbar-thumb {
   background: var(--border-glass);
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
@@ -175,8 +182,17 @@ html, body, #root {
 }
 
 @keyframes pulse-live {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(0.85);
+  }
 }
 
 /* Workspace Layout */
@@ -263,7 +279,7 @@ html, body, #root {
 .tab-btn.active {
   background: var(--bg-surface-raised);
   color: #ffffff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 /* Draw Controls Section */
@@ -305,8 +321,15 @@ html, body, #root {
 }
 
 @keyframes pulse-red {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.6;
+  }
 }
 
 /* Severity Grid */
@@ -379,6 +402,7 @@ html, body, #root {
   color: #ffffff;
   box-shadow: 0 4px 14px rgba(37, 99, 235, 0.3);
 }
+
 .btn-primary:hover {
   background: linear-gradient(135deg, #38bdf8 0%, #1d4ed8 100%);
   transform: translateY(-1px);
@@ -395,8 +419,15 @@ html, body, #root {
 }
 
 @keyframes pulse-border {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
-  50% { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7);
+  }
+
+  50% {
+    box-shadow: 0 0 0 6px rgba(220, 38, 38, 0);
+  }
 }
 
 .draw-hint-box {
@@ -439,9 +470,11 @@ html, body, #root {
   font-size: 11.5px;
   cursor: pointer;
 }
+
 .btn-link:hover {
   text-decoration: underline;
 }
+
 .btn-link.danger {
   color: #f87171;
 }
@@ -484,6 +517,7 @@ html, body, #root {
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
+
 .btn-secondary:hover {
   background: rgba(255, 255, 255, 0.1);
   border-color: var(--accent-cyan);
@@ -548,6 +582,7 @@ html, body, #root {
   cursor: pointer;
   font-size: 12px;
 }
+
 .btn-edit-name:hover {
   color: #ffffff;
 }
@@ -576,8 +611,14 @@ html, body, #root {
   font-size: 13px;
   padding: 2px 4px;
 }
-.btn-icon.check { color: #4ade80; }
-.btn-icon.cancel { color: #f87171; }
+
+.btn-icon.check {
+  color: #4ade80;
+}
+
+.btn-icon.cancel {
+  color: #f87171;
+}
 
 .severity-pill {
   font-family: var(--font-mono);
@@ -653,6 +694,7 @@ html, body, #root {
   border-radius: 4px;
   cursor: pointer;
 }
+
 .btn-danger-outline:hover {
   background: rgba(239, 68, 68, 0.2);
   border-color: #ef4444;
@@ -671,18 +713,21 @@ html, body, #root {
   gap: 6px;
 }
 
-.btn-primary-sm, .btn-secondary-sm {
+.btn-primary-sm,
+.btn-secondary-sm {
   padding: 4px 9px;
   border-radius: 4px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
+
 .btn-primary-sm {
   background: var(--accent-blue);
   color: #ffffff;
   border: none;
 }
+
 .btn-secondary-sm {
   background: var(--bg-surface-raised);
   border: 1px solid var(--border-glass);
@@ -751,10 +796,12 @@ html, body, #root {
   align-items: center;
   gap: 6px;
 }
+
 .btn-export:hover:not(:disabled) {
   border-color: var(--accent-cyan);
   background: rgba(56, 189, 248, 0.15);
 }
+
 .btn-export:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -814,6 +861,7 @@ html, body, #root {
   cursor: pointer;
   transition: all 0.15s ease;
 }
+
 .hud-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: var(--accent-cyan);
@@ -840,9 +888,11 @@ html, body, #root {
   cursor: pointer;
   transition: all 0.15s ease;
 }
+
 .style-btn:hover {
   color: #ffffff;
 }
+
 .osm-tag-pill {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -962,13 +1012,82 @@ html, body, #root {
   .app-workspace {
     flex-direction: column-reverse;
   }
+
   .flood-panel {
     width: 100%;
     height: 45%;
     border-right: none;
     border-top: 1px solid var(--border-subtle);
   }
+
   .map-view-container {
     height: 55%;
+  }
+}
+
+/* Dashboard Statistics Ribbon */
+.stats-ribbon {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  padding: 12px 16px;
+  background: #0b1220;
+  border-bottom: 1px solid #1e293b;
+}
+
+.stat-card {
+  min-height: 72px;
+  padding: 12px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: #111827;
+  border: 1px solid #263244;
+  border-radius: 10px;
+}
+
+.stat-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.stat-value {
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 800;
+  color: #f8fafc;
+}
+
+.stat-card.critical {
+  border-left: 4px solid #ff1744;
+}
+
+.stat-card.critical .stat-value {
+  color: #ff1744;
+}
+
+.stat-card.high {
+  border-left: 4px solid #ff8f00;
+}
+
+.stat-card.high .stat-value {
+  color: #ff8f00;
+}
+
+.stat-card.area {
+  border-left: 4px solid #00b8d4;
+}
+
+@media (max-width: 900px) {
+  .stats-ribbon {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .stats-ribbon {
+    grid-template-columns: 1fr;
   }
 }
