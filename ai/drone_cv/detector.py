@@ -22,16 +22,16 @@ from ultralytics import YOLO
 PERSON_CLASSES = {0: "person"}
 
 VEHICLE_CLASSES = {
-    1: "bicycle",
     2: "car",
     3: "motorcycle",
     5: "bus",
-    6: "train",
     7: "truck",
-    8: "boat",
 }
 
 TARGET_CLASSES = {**PERSON_CLASSES, **VEHICLE_CLASSES}
+
+# Visual Whitelist - Only annotated classes drawn on output image/video
+ALLOWED_VISUAL_CLASSES = {"person", "car", "motorcycle", "bus", "truck"}
 
 # Visual Styling - BGR Color Palettes
 COLOR_PERSON = (255, 191, 0)     # Deep Sky Cyan / Amber BGR
@@ -102,11 +102,12 @@ class DroneObjectDetector:
 
         height, width = image_cv.shape[:2]
 
-        # Run inference with configurable resolution (Stage 6: imgsz=1024 default)
+        # Run inference with configurable resolution (Stage 6: imgsz=1024 default) restricted to person, car, motorcycle, bus, truck
         results = self.model.predict(
             source=image_cv,
             conf=self.confidence_threshold,
             imgsz=self.inference_size,
+            classes=[0, 2, 3, 5, 7],
             verbose=False,
         )[0]
 
@@ -136,8 +137,8 @@ class DroneObjectDetector:
                 else:
                     category = "other"
 
-                # Filter if target_classes_only is enabled
-                if self.target_classes_only and category not in ("person", "vehicle"):
+                # Strictly filter out boat, train, bicycle, and any non-whitelisted classes
+                if class_name not in ALLOWED_VISUAL_CLASSES:
                     continue
 
                 if category == "person":
@@ -156,16 +157,17 @@ class DroneObjectDetector:
                 }
                 detections.append(detection_item)
 
-                # Draw bounding box and label on annotated image
-                color = COLOR_PERSON if category == "person" else (
-                    COLOR_VEHICLE if category == "vehicle" else COLOR_OTHER
-                )
-                self._draw_box_and_label(
-                    annotated_img,
-                    bbox=(x1, y1, x2, y2),
-                    label=f"{class_name} {confidence:.2f}",
-                    color=color,
-                )
+                # Draw bounding box and label ONLY for whitelisted classes (person, car, motorcycle, bus, truck)
+                if class_name in ALLOWED_VISUAL_CLASSES:
+                    color = COLOR_PERSON if category == "person" else (
+                        COLOR_VEHICLE if category == "vehicle" else COLOR_OTHER
+                    )
+                    self._draw_box_and_label(
+                        annotated_img,
+                        bbox=(x1, y1, x2, y2),
+                        label=f"{class_name} {confidence:.2f}",
+                        color=color,
+                    )
 
         # Build structured detection metadata
         structured_output = {

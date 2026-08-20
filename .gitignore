@@ -27,8 +27,6 @@ __pycache__/
 runs/
 *.onnx
 *.engine
-
-
-# Runtime-generated backend files
-backend/temp_outputs/
 backend/temp_uploads/
+backend/temp_outputs/
+*.zip

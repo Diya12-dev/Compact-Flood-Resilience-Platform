@@ -32,14 +32,14 @@ if str(platform_dir) not in sys.path:
 PERSON_CLASSES = {0: "person"}
 
 VEHICLE_CLASSES = {
-    1: "bicycle",
     2: "car",
     3: "motorcycle",
     5: "bus",
-    6: "train",
     7: "truck",
-    8: "boat",
 }
+
+# Visual Whitelist - Only annotated classes drawn on output video (person, car, motorcycle, bus, truck)
+ALLOWED_VISUAL_CLASSES = {"person", "car", "motorcycle", "bus", "truck"}
 
 # Visual Styling - BGR Color Palettes
 COLOR_PERSON = (255, 191, 0)     # Deep Sky Cyan / Amber BGR
@@ -94,12 +94,13 @@ class DroneObjectTracker:
         height, width = frame.shape[:2]
         annotated_img = frame.copy()
 
-        # Run ByteTrack tracking via Ultralytics model.track()
+        # Run ByteTrack tracking via Ultralytics model.track() restricted ONLY to person (0), car (2), motorcycle (3), bus (5), truck (7)
         results = self.model.track(
             source=frame,
             conf=self.confidence_threshold,
             persist=persist,
             tracker=self.tracker_type,
+            classes=[0, 2, 3, 5, 7],
             verbose=False,
         )[0]
 
@@ -130,7 +131,8 @@ class DroneObjectTracker:
                 else:
                     category = "other"
 
-                if self.target_classes_only and category not in ("person", "vehicle"):
+                # Strictly filter out boat, train, bicycle, and any non-whitelisted classes
+                if class_name not in ALLOWED_VISUAL_CLASSES:
                     continue
 
                 if category == "person":
@@ -150,21 +152,22 @@ class DroneObjectTracker:
                 }
                 tracks.append(track_item)
 
-                # Draw bounding box badge with track ID
-                if track_id is not None:
-                    label_text = f"{class_name} ID:{track_id} {confidence:.2f}"
-                else:
-                    label_text = f"{class_name} {confidence:.2f}"
+                # Draw visual bounding box badge ONLY for whitelisted classes (person, car, motorcycle, bus, truck)
+                if class_name in ALLOWED_VISUAL_CLASSES:
+                    if track_id is not None:
+                        label_text = f"{class_name} ID:{track_id} {confidence:.2f}"
+                    else:
+                        label_text = f"{class_name} {confidence:.2f}"
 
-                color = COLOR_PERSON if category == "person" else (
-                    COLOR_VEHICLE if category == "vehicle" else COLOR_OTHER
-                )
-                self._draw_box_and_label(
-                    annotated_img,
-                    bbox=(x1, y1, x2, y2),
-                    label=label_text,
-                    color=color,
-                )
+                    color = COLOR_PERSON if category == "person" else (
+                        COLOR_VEHICLE if category == "vehicle" else COLOR_OTHER
+                    )
+                    self._draw_box_and_label(
+                        annotated_img,
+                        bbox=(x1, y1, x2, y2),
+                        label=label_text,
+                        color=color,
+                    )
 
         frame_metadata = {
             "image_dimensions": {"width": width, "height": height},
