@@ -1,0 +1,16 @@
+{
+  "image": "sample_input.jpg",
+  "source_path": "C:\\Users\\divya\\Desktop\\I4I project\\Compact-Flood-Resilience-Platform\\ai\\drone_cv\\test_data\\sample_input.jpg",
+  "image_dimensions": {
+    "width": 640,
+    "height": 480
+  },
+  "summary": {
+    "total_detections": 0,
+    "people_count": 0,
+    "vehicle_count": 0,
+    "other_count": 0
+  },
+  "detections": [],
+  "annotated_image_path": "C:\\Users\\divya\\Desktop\\I4I project\\Compact-Flood-Resilience-Platform\\ai\\drone_cv\\test_data\\annotated_output.jpg"
+}
