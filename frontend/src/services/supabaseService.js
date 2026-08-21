@@ -1,9 +1,14 @@
 import { supabase } from '../lib/supabase';
 
+// ============================================================
+// FLOOD ZONES
+// ============================================================
+
 export async function fetchFloodZones() {
   const { data, error } = await supabase
     .from('flood_zones')
-    .select('*');
+    .select('*')
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching flood zones:', error);
@@ -16,18 +21,7 @@ export async function fetchFloodZones() {
 export async function createFloodZone(zone) {
   const { data, error } = await supabase
     .from('flood_zones')
-    .insert({
-      geojson_polygon: zone.feature || {
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [zone.coordinates],
-        },
-        properties: {},
-      },
-      severity: zone.severity,
-      ward_name: zone.name,
-    })
+    .insert([zone])
     .select()
     .single();
 
@@ -39,22 +33,11 @@ export async function createFloodZone(zone) {
   return data;
 }
 
-export async function updateFloodZone(zoneId, updates) {
+export async function updateFloodZone(id, updates) {
   const { data, error } = await supabase
     .from('flood_zones')
-    .update({
-      severity: updates.severity,
-      ward_name: updates.name,
-      geojson_polygon: updates.feature || {
-        type: 'Feature',
-        geometry: {
-          type: 'Polygon',
-          coordinates: [updates.coordinates],
-        },
-        properties: {},
-      },
-    })
-    .eq('id', zoneId)
+    .update(updates)
+    .eq('id', id)
     .select()
     .single();
 
@@ -66,31 +49,67 @@ export async function updateFloodZone(zoneId, updates) {
   return data;
 }
 
-export async function deleteFloodZone(zoneId) {
-  const { error } = await supabase
+export async function deleteFloodZone(id) {
+  const { data, error } = await supabase
     .from('flood_zones')
     .delete()
-    .eq('id', zoneId);
+    .eq('id', id)
+    .select();
 
   if (error) {
     console.error('Error deleting flood zone:', error);
     throw error;
   }
 
-  return true;
+  return data;
 }
 
-// =========================================================
-// VOLUNTEER FUNCTIONS
-// =========================================================
+// ============================================================
+// VOLUNTEERS
+// ============================================================
 
 export async function fetchVolunteers() {
   const { data, error } = await supabase
     .from('volunteers')
-    .select('*');
+    .select('*')
+    .order('created_at', { ascending: false });
 
   if (error) {
     console.error('Error fetching volunteers:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+// ============================================================
+// DASHBOARD SUMMARY VIEW
+// ============================================================
+
+export async function fetchDashboardSummary() {
+  const { data, error } = await supabase
+    .from('dashboard_summary')
+    .select('*');
+
+  if (error) {
+    console.error('Error fetching dashboard summary:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+// ============================================================
+// SOS + ASSIGNED VOLUNTEER VIEW
+// ============================================================
+
+export async function fetchSOSWithVolunteer() {
+  const { data, error } = await supabase
+    .from('sos_with_volunteer')
+    .select('*');
+
+  if (error) {
+    console.error('Error fetching SOS with volunteer:', error);
     throw error;
   }
 
