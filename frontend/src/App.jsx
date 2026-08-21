@@ -1,414 +1,253 @@
-import React, { useState, useEffect } from 'react';
+import FloodDashboard from './flood-module/FloodDashboard';
+import React from 'react';
+import { Routes, Route, Link } from 'react-router-dom';
 
-import {
-  fetchFloodZones,
-  createFloodZone,
-  updateFloodZone,
-  deleteFloodZone,
-} from './services/supabaseService';
+import ARSimulator from './ar-module/ARSimulator';
+import DroneMonitoring from './drone-module/DroneMonitoring';
 
-import LeafletMap from './components/LeafletMap';
-import FloodZonePanel from './components/FloodZonePanel';
-
-import {
-  calculatePolygonArea,
-  getPolygonBounds,
-} from './utils/geoUtils';
-
-const STORAGE_KEY_ZONES = 'cfrp_flood_zones';
-
-export default function App() {
-  // =========================================================
-  // STATE
-  // =========================================================
-
-  const [zones, setZones] = useState(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_ZONES);
-
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (error) {
-        console.error('Failed to parse saved zones:', error);
-      }
-    }
-
-    return [];
-  });
-
-  const [selectedZoneId, setSelectedZoneId] = useState(null);
-  const [activeSeverity, setActiveSeverity] = useState('HIGH');
-  const [drawMode, setDrawMode] = useState('simple_select');
-
-  // =========================================================
-  // DASHBOARD STATISTICS
-  // =========================================================
-
-  const totalZones = zones.length;
-
-  const criticalZones = zones.filter(
-    (z) => z.severity?.toUpperCase() === 'CRITICAL'
-  ).length;
-
-  const highRiskZones = zones.filter(
-    (z) => z.severity?.toUpperCase() === 'HIGH'
-  ).length;
-
-  const totalAffectedArea = zones.reduce(
-    (sum, z) => sum + (Number(z.area) || 0),
-    0
-  );
-
-  const totalAffectedAreaKm2 = (
-    totalAffectedArea / 1000000
-  ).toFixed(2);
-
-  // =========================================================
-  // LOCAL STORAGE
-  // =========================================================
-
-  useEffect(() => {
-    localStorage.setItem(
-      STORAGE_KEY_ZONES,
-      JSON.stringify(zones)
-    );
-  }, [zones]);
-
-  // =========================================================
-  // FORMAT SUPABASE DATA
-  // =========================================================
-
-  const formatSupabaseZone = (row) => {
-    const feature = row.geojson_polygon;
-    const geom = feature?.geometry ?? feature;
-
-    let coords = [];
-
-    if (geom) {
-      if (geom.type === 'Polygon') {
-        coords = geom.coordinates?.[0] ?? [];
-      } else if (geom.type === 'MultiPolygon') {
-        coords = geom.coordinates?.[0]?.[0] ?? [];
-      } else if (Array.isArray(geom)) {
-        coords = geom;
-      }
-    }
-
-    const area = calculatePolygonArea(coords);
-    const bounds = getPolygonBounds(coords);
-
-    return {
-      id: row.id,
-      name: row.ward_name,
-      severity: row.severity,
-      riskScore: row.risk_score,
-      area,
-      coordinates: coords,
-      center: bounds.center,
-      bbox: bounds.bbox,
-      feature: feature,
-      createdAt: row.created_at,
-    };
-  };
-
-  // =========================================================
-  // LOAD FLOOD ZONES FROM SUPABASE
-  // =========================================================
-
-  useEffect(() => {
-    const loadFloodZones = async () => {
-      try {
-        const rows = await fetchFloodZones();
-
-        console.log(
-          'Supabase flood zones (raw):',
-          rows
-        );
-
-        const formatted = rows.map(formatSupabaseZone);
-
-        setZones(formatted);
-
-        if (formatted.length > 0) {
-          setSelectedZoneId(formatted[0].id);
-        }
-      } catch (error) {
-        console.error(
-          'Failed to load flood zones:',
-          error
-        );
-      }
-    };
-
-    loadFloodZones();
-  }, []);
-
-  // =========================================================
-  // ZONE CHANGES FROM LEAFLET MAP
-  // =========================================================
-
-  const handleZonesChange = async (updatedZones) => {
-    /*
-     * IMPORTANT:
-     * First update React state so the UI/map remains responsive.
-     */
-    setZones(updatedZones);
-
-    console.log(
-      'Zones changed:',
-      updatedZones
-    );
-  };
-
-  // =========================================================
-  // LOAD SAMPLE PUNE ZONES
-  // =========================================================
-
-  const handleLoadSampleZones = (sampleFeatures) => {
-    const formatted = sampleFeatures.map((feat) => {
-      const coords = feat.geometry.coordinates[0];
-
-      const area = calculatePolygonArea(coords);
-      const bounds = getPolygonBounds(coords);
-
-      return {
-        id: feat.id,
-        name: feat.properties.name,
-        severity: feat.properties.severity,
-        area,
-        coordinates: coords,
-        center: bounds.center,
-        bbox: bounds.bbox,
-        feature: feat,
-        createdAt:
-          feat.properties.createdAt ||
-          new Date().toISOString(),
-      };
-    });
-
-    setZones(formatted);
-
-    if (formatted.length > 0) {
-      setSelectedZoneId(formatted[0].id);
-    }
-  };
-
-  // =========================================================
-  // DELETE ZONE
-  // =========================================================
-
-  const handleDeleteZone = async (zoneId) => {
-    try {
-      /*
-       * Sample zones don't exist in Supabase.
-       */
-      const isSampleZone = String(zoneId).startsWith(
-        'sample-'
-      );
-
-      if (!isSampleZone) {
-        await deleteFloodZone(zoneId);
-      }
-
-      setZones((prev) =>
-        prev.filter((z) => z.id !== zoneId)
-      );
-
-      if (selectedZoneId === zoneId) {
-        setSelectedZoneId(null);
-      }
-
-      console.log(
-        'Flood zone deleted:',
-        zoneId
-      );
-    } catch (error) {
-      console.error(
-        'Failed to delete flood zone:',
-        error
-      );
-    }
-  };
-
-  // =========================================================
-  // CLEAR ALL ZONES
-  // =========================================================
-
-  const handleClearAllZones = async () => {
-    if (
-      !window.confirm(
-        'Are you sure you want to clear all flood zones from the map?'
-      )
-    ) {
-      return;
-    }
-
-    try {
-      /*
-       * Delete real Supabase zones.
-       * Sample zones are only local.
-       */
-      const realZones = zones.filter(
-        (zone) =>
-          !String(zone.id).startsWith('sample-')
-      );
-
-      for (const zone of realZones) {
-        await deleteFloodZone(zone.id);
-      }
-
-      setZones([]);
-      setSelectedZoneId(null);
-
-      console.log('All flood zones cleared.');
-    } catch (error) {
-      console.error(
-        'Failed to clear flood zones:',
-        error
-      );
-    }
-  };
-
-  // =========================================================
-  // UI
-  // =========================================================
-
+function HomeLanding() {
   return (
     <div
-      className="app-container"
-      id="app-root-layout"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight: '100vh',
+        padding: '24px',
+        textAlign: 'center',
+        background:
+          'radial-gradient(circle at center, #1e293b 0%, #0f172a 100%)',
+        boxSizing: 'border-box',
+      }}
     >
-      {/* TOP COMMAND HEADER */}
-
-      <header
-        className="app-header"
-        id="command-header"
+      {/* Shield Icon */}
+      <div
+        style={{
+          padding: '16px',
+          background: 'rgba(2, 132, 199, 0.15)',
+          border: '1px solid rgba(2, 132, 199, 0.3)',
+          borderRadius: '50%',
+          marginBottom: '24px',
+        }}
       >
-        <div className="header-left">
-          <div className="platform-logo">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-            >
-              <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
-            </svg>
-          </div>
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#0284c7"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+          <path d="M12 8v4" />
+          <path d="M12 16h.01" />
+        </svg>
+      </div>
 
-          <div>
-            <h1 className="header-title">
-              Compact Flood Resilience Platform
-            </h1>
-
-            <div className="header-meta">
-              <span className="badge-branch">
-                branch: feature/mapbox-flood-zones
-              </span>
-
-              <span className="badge-region">
-                📍 Pune Division Command
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="header-right">
-          <div className="system-pill live">
-            <span className="live-dot" />
-
-            <span>
-              OpenStreetMap Engine Active
-            </span>
-          </div>
-        </div>
-      </header>
-
-      {/* FLOOD STATISTICS */}
-
-      <section
-        className="stats-ribbon"
-        aria-label="Flood statistics"
+      {/* Title */}
+      <h1
+        style={{
+          fontSize: '2rem',
+          fontWeight: 800,
+          marginBottom: '12px',
+          color: '#f8fafc',
+        }}
       >
-        <div className="stat-card">
-          <span className="stat-label">
-            FLOOD ZONES
-          </span>
+        Compact Flood Resilience Platform
+      </h1>
 
-          <strong className="stat-value">
-            {totalZones}
-          </strong>
-        </div>
-
-        <div className="stat-card critical">
-          <span className="stat-label">
-            CRITICAL
-          </span>
-
-          <strong className="stat-value">
-            {criticalZones}
-          </strong>
-        </div>
-
-        <div className="stat-card high">
-          <span className="stat-label">
-            HIGH RISK
-          </span>
-
-          <strong className="stat-value">
-            {highRiskZones}
-          </strong>
-        </div>
-
-        <div className="stat-card area">
-          <span className="stat-label">
-            AFFECTED AREA
-          </span>
-
-          <strong className="stat-value">
-            {totalAffectedAreaKm2} km²
-          </strong>
-        </div>
-      </section>
-
-      {/* MAIN WORKSPACE */}
-
-      <main
-        className="app-workspace"
-        id="main-workspace"
+      {/* Description */}
+      <p
+        style={{
+          color: '#94a3b8',
+          maxWidth: '560px',
+          marginBottom: '32px',
+          lineHeight: 1.6,
+        }}
       >
-        {/* FLOOD ZONE PANEL */}
+        Interactive disaster response platform integrating AR flood
+        visualization, AI-powered drone monitoring, real-time command tools,
+        and safe evacuation guidance.
+      </p>
 
-        <FloodZonePanel
-          zones={zones}
-          onZonesChange={handleZonesChange}
-          selectedZoneId={selectedZoneId}
-          onSelectZone={setSelectedZoneId}
-          activeSeverity={activeSeverity}
-          setActiveSeverity={setActiveSeverity}
-          drawMode={drawMode}
-          setDrawMode={setDrawMode}
-          onLoadSampleZones={handleLoadSampleZones}
-          onDeleteZone={handleDeleteZone}
-          onClearAllZones={handleClearAllZones}
+      {/* Buttons */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+          width: '100%',
+          maxWidth: '430px',
+        }}
+      >
+        {/* AR Flood Simulator */}
+        <Link
+          to="/simulate"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '10px',
+            padding: '15px 24px',
+            background:
+              'linear-gradient(135deg, #0284c7 0%, #06b6d4 100%)',
+            color: '#ffffff',
+            fontWeight: 600,
+            fontSize: '1rem',
+            borderRadius: '12px',
+            textDecoration: 'none',
+            boxShadow: '0 10px 25px -5px rgba(2, 132, 199, 0.5)',
+            transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+          }}
+        >
+          {/* Compass Icon */}
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+          </svg>
+
+          Launch AR Flood Simulator
+        </Link>
+
+        {/* AI Drone Monitoring */}
+        <Link
+          to="/drone"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '10px',
+            padding: '15px 24px',
+            background:
+              'linear-gradient(135deg, #7c3aed 0%, #4f46e5 100%)',
+            color: '#ffffff',
+            fontWeight: 600,
+            fontSize: '1rem',
+            borderRadius: '12px',
+            textDecoration: 'none',
+            boxShadow: '0 10px 25px -5px rgba(79, 70, 229, 0.45)',
+            transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+          }}
+        >
+          {/* Drone Icon */}
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M12 8v8" />
+            <path d="M8 12h8" />
+            <rect x="9" y="9" width="6" height="6" rx="1" />
+            <path d="M5 7h2v2H5z" />
+            <path d="M17 7h2v2h-2z" />
+            <path d="M5 15h2v2H5z" />
+            <path d="M17 15h2v2h-2z" />
+            <path d="M7 8l2 2" />
+            <path d="M17 8l-2 2" />
+            <path d="M7 16l2-2" />
+            <path d="M17 16l-2-2" />
+          </svg>
+
+          Launch AI Drone Monitoring
+        </Link>
+      </div>
+
+      {/* Platform Status */}
+      <div
+        style={{
+          marginTop: '28px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          color: '#64748b',
+          fontSize: '0.8rem',
+        }}
+      >
+        <span
+          style={{
+            width: '8px',
+            height: '8px',
+            borderRadius: '50%',
+            background: '#22c55e',
+            boxShadow: '0 0 8px rgba(34, 197, 94, 0.7)',
+          }}
         />
-
-        {/* MAP */}
-
-        <div className="map-view-container">
-          <LeafletMap
-            zones={zones}
-            onZonesChange={handleZonesChange}
-            selectedZoneId={selectedZoneId}
-            onSelectZone={setSelectedZoneId}
-            activeSeverity={activeSeverity}
-            drawMode={drawMode}
-            setDrawMode={setDrawMode}
-          />
-        </div>
-      </main>
+        Platform modules available
+      </div>
     </div>
+  );
+}
+
+function NotFound() {
+  return (
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#0f172a',
+        color: '#f8fafc',
+        textAlign: 'center',
+        padding: '24px',
+      }}
+    >
+      <h1 style={{ fontSize: '3rem', marginBottom: '10px' }}>404</h1>
+
+      <p style={{ color: '#94a3b8', marginBottom: '24px' }}>
+        Page not found.
+      </p>
+
+      <Link
+        to="/"
+        style={{
+          padding: '12px 22px',
+          borderRadius: '10px',
+          background: '#0284c7',
+          color: '#fff',
+          textDecoration: 'none',
+          fontWeight: 600,
+        }}
+      >
+        Return to Platform
+      </Link>
+    </div>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/flood" element={<FloodDashboard />} />
+      {/* Home */}
+      <Route path="/" element={<HomeLanding />} />
+
+      {/* AR Flood Simulator */}
+      <Route path="/simulate" element={<ARSimulator />} />
+
+      {/* AI Drone Monitoring */}
+      <Route path="/drone" element={<DroneMonitoring />} />
+
+      {/* Unknown routes */}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
   );
 }

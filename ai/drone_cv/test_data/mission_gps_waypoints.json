@@ -1,0 +1,33 @@
+{
+  "metadata": {
+    "source": "simulated_mission_path",
+    "description": "Simulated GPS waypoints for prototype testing; not real drone telemetry."
+  },
+  "waypoints": [
+    {
+      "timestamp_seconds": 0.0,
+      "latitude": 18.5204,
+      "longitude": 73.8567
+    },
+    {
+      "timestamp_seconds": 5.0,
+      "latitude": 18.5210,
+      "longitude": 73.8572
+    },
+    {
+      "timestamp_seconds": 10.0,
+      "latitude": 18.5217,
+      "longitude": 73.8578
+    },
+    {
+      "timestamp_seconds": 15.0,
+      "latitude": 18.5223,
+      "longitude": 73.8584
+    },
+    {
+      "timestamp_seconds": 30.0,
+      "latitude": 18.5240,
+      "longitude": 73.8600
+    }
+  ]
+}
