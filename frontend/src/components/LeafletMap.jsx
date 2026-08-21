@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
+import distance from '@turf/distance';
+import { point } from '@turf/helpers';
 import 'leaflet/dist/leaflet.css';
 import '@geoman-io/leaflet-geoman-free';
 import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css';
@@ -19,21 +21,35 @@ const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors';
 
 export default function LeafletMap({
+
   zones = [],
+
   onZonesChange,
+
   selectedZoneId,
+
   onSelectZone,
+
   activeSeverity,
+
   drawMode,
+
   setDrawMode,
+
   volunteers = [],
+
+  sosAlerts = [],
+
 }) {
+  console.log('LeafletMap SOS:', sosAlerts);
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const layersMapRef = useRef(new Map()); // zone.id -> L.Polygon
   const volunteerMarkersRef = useRef(new Map()); // volunteer.id -> L.CircleMarker
-
+const sosMarkersRef = useRef(new Map());
   const [cursorCoords, setCursorCoords] = useState(null);
+  const [selectedSOS, setSelectedSOS] = useState(null);
+const [assignedVolunteer, setAssignedVolunteer] = useState(null);
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
 
   // Helper to get styling options based on severity
@@ -358,6 +374,127 @@ export default function LeafletMap({
       }
     });
   }, [volunteers]);
+  // =========================================================
+   //RENDER SOS ALERT MARKERS
+// =========================================================
+
+// =========================================================
+useEffect(() => {
+  const map = mapRef.current;
+
+  if (!map) return;
+
+  const incomingIds = new Set(
+    (sosAlerts || []).map((alert) => alert.id)
+  );
+
+  // Remove old SOS markers
+  sosMarkersRef.current.forEach((marker, id) => {
+    if (!incomingIds.has(id)) {
+      if (map.hasLayer(marker)) {
+        map.removeLayer(marker);
+      }
+      sosMarkersRef.current.delete(id);
+    }
+  });
+
+  // Create/update SOS markers
+  (sosAlerts || []).forEach((alert) => {
+    if (
+      !alert ||
+      alert.lat === undefined ||
+      alert.lng === undefined
+    ) {
+      return;
+    }
+
+    const severity = String(
+      alert.severity || 'medium'
+    ).toUpperCase();
+
+    let markerColor = '#f59e0b';
+
+    if (severity === 'CRITICAL') {
+      markerColor = '#ef4444';
+    } else if (severity === 'HIGH') {
+      markerColor = '#f97316';
+    } else if (severity === 'LOW') {
+      markerColor = '#22c55e';
+    }
+
+    let marker = sosMarkersRef.current.get(alert.id);
+
+    if (!marker) {
+      marker = L.circleMarker(
+        [Number(alert.lat), Number(alert.lng)],
+        {
+          radius: 10,
+          fillColor: markerColor,
+          color: '#ffffff',
+          weight: 3,
+          opacity: 1,
+          fillOpacity: 0.95,
+        }
+      ).addTo(map);
+
+      marker.bindPopup(`
+  <div style="font-family: Arial, sans-serif; font-size: 13px; min-width: 180px;">
+    <strong style="color: #dc2626; font-size: 15px;">
+      🆘 SOS ALERT
+    </strong>
+
+    <hr style="margin: 6px 0;" />
+
+    <div>
+      <strong>Severity:</strong>
+      ${severity}
+    </div>
+
+    <div>
+      <strong>Status:</strong>
+      ${String(alert.status || 'open').toUpperCase()}
+    </div>
+
+    <div>
+      <strong>Source:</strong>
+      ${alert.source || 'manual'}
+    </div>
+
+    <div>
+      <strong>Location:</strong>
+      ${Number(alert.lat).toFixed(5)},
+      ${Number(alert.lng).toFixed(5)}
+    </div>
+
+    <div style="margin-top: 8px;">
+      <strong>Created:</strong>
+      ${
+        alert.created_at
+          ? new Date(alert.created_at).toLocaleString()
+          : 'Unknown'
+      }
+    </div>
+  </div>
+`);
+
+      sosMarkersRef.current.set(alert.id, marker);
+    } else {
+      marker.setLatLng([
+        Number(alert.lat),
+        Number(alert.lng),
+      ]);
+
+      marker.setStyle({
+        fillColor: markerColor,
+      });
+    }
+  });
+
+  console.log(
+    'SOS markers rendered:',
+    sosAlerts?.length || 0
+  );
+}, [sosAlerts]);
 
   // Focus and zoom when a zone is selected
   useEffect(() => {

@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
-
 import {
   fetchFloodZones,
   createFloodZone,
   updateFloodZone,
   deleteFloodZone,
   fetchVolunteers,
+  fetchDashboardSummary,
 } from '../services/supabaseService';
+
+
+import { fetchSOSAlerts } from '../services/sosService';
 
 import LeafletMap from '../components/LeafletMap';
 import FloodZonePanel from '../components/FloodZonePanel';
@@ -20,11 +23,11 @@ import './FloodDashboard.css';
 
 const STORAGE_KEY_ZONES = 'cfrp_flood_zones';
 
-export default function App() {
+export default function FloodDashboard() {
   // =========================================================
   // STATE
   // =========================================================
-
+const [dashboardSummary, setDashboardSummary] = useState([]);
   const [zones, setZones] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY_ZONES);
 
@@ -40,8 +43,13 @@ export default function App() {
   });
 
   const [volunteers, setVolunteers] = useState([]);
+
+  const [sosAlerts, setSosAlerts] = useState([]);
+
   const [selectedZoneId, setSelectedZoneId] = useState(null);
+
   const [activeSeverity, setActiveSeverity] = useState('HIGH');
+
   const [drawMode, setDrawMode] = useState('simple_select');
 
   // =========================================================
@@ -67,11 +75,15 @@ export default function App() {
     totalAffectedArea / 1000000
   ).toFixed(2);
 
-  // Volunteer Statistics
+  // =========================================================
+  // VOLUNTEER STATISTICS
+  // =========================================================
+
   const totalVolunteers = volunteers.length;
 
   const availableVolunteers = volunteers.filter((v) => {
     const available = v.available;
+
     return (
       available === true ||
       available === 'true' ||
@@ -79,7 +91,8 @@ export default function App() {
     );
   }).length;
 
-  const unavailableVolunteers = totalVolunteers - availableVolunteers;
+  const unavailableVolunteers =
+    totalVolunteers - availableVolunteers;
 
   // =========================================================
   // LOCAL STORAGE
@@ -93,11 +106,12 @@ export default function App() {
   }, [zones]);
 
   // =========================================================
-  // FORMAT SUPABASE DATA
+  // FORMAT SUPABASE FLOOD ZONE DATA
   // =========================================================
 
   const formatSupabaseZone = (row) => {
     const feature = row.geojson_polygon;
+
     const geom = feature?.geometry ?? feature;
 
     let coords = [];
@@ -113,6 +127,7 @@ export default function App() {
     }
 
     const area = calculatePolygonArea(coords);
+
     const bounds = getPolygonBounds(coords);
 
     return {
@@ -124,7 +139,7 @@ export default function App() {
       coordinates: coords,
       center: bounds.center,
       bbox: bounds.bbox,
-      feature: feature,
+      feature,
       createdAt: row.created_at,
     };
   };
@@ -160,7 +175,25 @@ export default function App() {
 
     loadFloodZones();
   }, []);
+// ============================================================
+// LOAD DASHBOARD SUMMARY FROM SUPABASE VIEW
+// ============================================================
 
+useEffect(() => {
+  const loadDashboardSummary = async () => {
+    try {
+      const data = await fetchDashboardSummary();
+
+      console.log('Dashboard summary:', data);
+
+      setDashboardSummary(data || []);
+    } catch (error) {
+      console.error('Failed to load dashboard summary:', error);
+    }
+  };
+
+  loadDashboardSummary();
+}, []);
   // =========================================================
   // LOAD VOLUNTEERS FROM SUPABASE
   // =========================================================
@@ -175,7 +208,7 @@ export default function App() {
           data
         );
 
-        setVolunteers(data);
+        setVolunteers(data || []);
       } catch (error) {
         console.error(
           'Failed to load volunteers:',
@@ -188,14 +221,38 @@ export default function App() {
   }, []);
 
   // =========================================================
+  // LOAD SOS ALERTS FROM SUPABASE
+  // =========================================================
+
+  useEffect(() => {
+    const loadSOSAlerts = async () => {
+      try {
+        const data = await fetchSOSAlerts();
+
+        console.log(
+          'FloodDashboard SOS:',
+          data
+        );
+
+        setSosAlerts(data || []);
+      } catch (error) {
+        console.error(
+          'Failed to load SOS alerts:',
+          error
+        );
+
+        setSosAlerts([]);
+      }
+    };
+
+    loadSOSAlerts();
+  }, []);
+
+  // =========================================================
   // ZONE CHANGES FROM LEAFLET MAP
   // =========================================================
 
   const handleZonesChange = async (updatedZones) => {
-    /*
-     * IMPORTANT:
-     * First update React state so the UI/map remains responsive.
-     */
     setZones(updatedZones);
 
     console.log(
@@ -213,6 +270,7 @@ export default function App() {
       const coords = feat.geometry.coordinates[0];
 
       const area = calculatePolygonArea(coords);
+
       const bounds = getPolygonBounds(coords);
 
       return {
@@ -243,12 +301,9 @@ export default function App() {
 
   const handleDeleteZone = async (zoneId) => {
     try {
-      /*
-       * Sample zones don't exist in Supabase.
-       */
-      const isSampleZone = String(zoneId).startsWith(
-        'sample-'
-      );
+      const isSampleZone = String(
+        zoneId
+      ).startsWith('sample-');
 
       if (!isSampleZone) {
         await deleteFloodZone(zoneId);
@@ -288,10 +343,6 @@ export default function App() {
     }
 
     try {
-      /*
-       * Delete real Supabase zones.
-       * Sample zones are only local.
-       */
       const realZones = zones.filter(
         (zone) =>
           !String(zone.id).startsWith('sample-')
@@ -302,9 +353,12 @@ export default function App() {
       }
 
       setZones([]);
+
       setSelectedZoneId(null);
 
-      console.log('All flood zones cleared.');
+      console.log(
+        'All flood zones cleared.'
+      );
     } catch (error) {
       console.error(
         'Failed to clear flood zones:',
@@ -347,10 +401,7 @@ export default function App() {
               Compact Flood Resilience Platform
             </h1>
 
-            <div className="header-meta">
-
-
-            </div>
+            <div className="header-meta"></div>
           </div>
         </div>
 
@@ -410,6 +461,19 @@ export default function App() {
             {totalAffectedAreaKm2} km²
           </strong>
         </div>
+        <div className="stat-card sos">
+  <span className="stat-label">
+    ACTIVE SOS
+  </span>
+  <strong className="stat-value">
+    {
+      sosAlerts.filter(
+        (alert) =>
+          String(alert.status || 'open').toLowerCase() === 'open'
+      ).length
+    }
+  </strong>
+</div>
 
         <div className="stat-card volunteer-total">
           <span className="stat-label">
@@ -476,6 +540,7 @@ export default function App() {
             drawMode={drawMode}
             setDrawMode={setDrawMode}
             volunteers={volunteers}
+            sosAlerts={sosAlerts}
           />
         </div>
       </main>

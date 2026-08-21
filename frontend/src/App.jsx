@@ -1,9 +1,11 @@
-import FloodDashboard from './flood-module/FloodDashboard';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
 
+import FloodDashboard from './flood-module/FloodDashboard';
 import ARSimulator from './ar-module/ARSimulator';
 import DroneMonitoring from './drone-module/DroneMonitoring';
+
+import { fetchSOSAlerts } from './services/sosService';
 
 function HomeLanding() {
   return (
@@ -227,6 +229,7 @@ function HomeLanding() {
             boxShadow: '0 0 8px rgba(34, 197, 94, 0.7)',
           }}
         />
+
         Platform modules available
       </div>
     </div>
@@ -248,9 +251,21 @@ function NotFound() {
         padding: '24px',
       }}
     >
-      <h1 style={{ fontSize: '3rem', marginBottom: '10px' }}>404</h1>
+      <h1
+        style={{
+          fontSize: '3rem',
+          marginBottom: '10px',
+        }}
+      >
+        404
+      </h1>
 
-      <p style={{ color: '#94a3b8', marginBottom: '24px' }}>
+      <p
+        style={{
+          color: '#94a3b8',
+          marginBottom: '24px',
+        }}
+      >
         Page not found.
       </p>
 
@@ -272,20 +287,61 @@ function NotFound() {
 }
 
 export default function App() {
+  const [sosAlerts, setSosAlerts] = useState([]);
+
+  // =========================================================
+  // LOAD SOS ALERTS
+  // =========================================================
+  useEffect(() => {
+    async function loadSOS() {
+      try {
+        const alerts = await fetchSOSAlerts();
+
+        console.log('SOS ALERTS:', alerts);
+
+        setSosAlerts(alerts || []);
+      } catch (error) {
+        console.error('Failed to load SOS alerts:', error);
+        setSosAlerts([]);
+      }
+    }
+
+    loadSOS();
+  }, []);
+
   return (
     <Routes>
-      <Route path="/flood" element={<FloodDashboard />} />
+      {/* Flood Dashboard */}
+      <Route
+        path="/flood"
+        element={
+          <FloodDashboard sosAlerts={sosAlerts} />
+        }
+      />
+
       {/* Home */}
-      <Route path="/" element={<HomeLanding />} />
+      <Route
+        path="/"
+        element={<HomeLanding />}
+      />
 
       {/* AR Flood Simulator */}
-      <Route path="/simulate" element={<ARSimulator />} />
+      <Route
+        path="/simulate"
+        element={<ARSimulator />}
+      />
 
       {/* AI Drone Monitoring */}
-      <Route path="/drone" element={<DroneMonitoring />} />
+      <Route
+        path="/drone"
+        element={<DroneMonitoring />}
+      />
 
       {/* Unknown routes */}
-      <Route path="*" element={<NotFound />} />
+      <Route
+        path="*"
+        element={<NotFound />}
+      />
     </Routes>
   );
 }
