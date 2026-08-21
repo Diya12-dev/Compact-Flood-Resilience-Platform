@@ -26,10 +26,12 @@ export default function LeafletMap({
   activeSeverity,
   drawMode,
   setDrawMode,
+  volunteers = [],
 }) {
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const layersMapRef = useRef(new Map()); // zone.id -> L.Polygon
+  const volunteerMarkersRef = useRef(new Map()); // volunteer.id -> L.CircleMarker
 
   const [cursorCoords, setCursorCoords] = useState(null);
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
@@ -289,6 +291,73 @@ export default function LeafletMap({
       }
     });
   }, [zones, selectedZoneId, onSelectZone, syncLayersToState]);
+
+  // Render volunteer markers on the map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const incomingIds = new Set((volunteers || []).map((v) => v.id));
+
+    // 1. Remove volunteer markers that no longer exist
+    volunteerMarkersRef.current.forEach((marker, id) => {
+      if (!incomingIds.has(id)) {
+        if (map.hasLayer(marker)) {
+          map.removeLayer(marker);
+        }
+        volunteerMarkersRef.current.delete(id);
+      }
+    });
+
+    // 2. Add or update volunteer markers
+    (volunteers || []).forEach((volunteer) => {
+      if (!volunteer || volunteer.lat === undefined || volunteer.lng === undefined) {
+        return;
+      }
+
+      const isAvailable = volunteer.available === true || volunteer.available === 'true';
+      const markerColor = isAvailable ? '#22c55e' : '#ef4444'; // Green for available, Red for unavailable
+      const markerRadius = 8;
+
+      let marker = volunteerMarkersRef.current.get(volunteer.id);
+
+      if (!marker) {
+        // Create new volunteer marker
+        marker = L.circleMarker([volunteer.lat, volunteer.lng], {
+          radius: markerRadius,
+          fillColor: markerColor,
+          color: '#ffffff',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.8,
+        }).addTo(map);
+
+        // Create popup with volunteer info
+        const popupContent = `
+          <div style="font-family: Arial, sans-serif; font-size: 12px;">
+            <strong>${volunteer.name || 'Unknown'}</strong><br/>
+            <span style="color: #666;">Skill: ${volunteer.skill || 'Not specified'}</span><br/>
+            <span style="color: ${isAvailable ? '#22c55e' : '#ef4444'}; font-weight: bold;">
+              ${isAvailable ? '✓ Available' : '✗ Unavailable'}
+            </span>
+          </div>
+        `;
+        marker.bindPopup(popupContent);
+
+        marker._volunteerId = volunteer.id;
+        marker._volunteerName = volunteer.name;
+        marker._volunteerSkill = volunteer.skill;
+        marker._volunteeerAvailable = isAvailable;
+
+        volunteerMarkersRef.current.set(volunteer.id, marker);
+      } else {
+        // Update existing marker color if availability changed
+        marker.setStyle({
+          fillColor: markerColor,
+        });
+      }
+    });
+  }, [volunteers]);
 
   // Focus and zoom when a zone is selected
   useEffect(() => {

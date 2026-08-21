@@ -5,6 +5,7 @@ import {
   createFloodZone,
   updateFloodZone,
   deleteFloodZone,
+  fetchVolunteers,
 } from '../services/supabaseService';
 
 import LeafletMap from '../components/LeafletMap';
@@ -14,6 +15,8 @@ import {
   calculatePolygonArea,
   getPolygonBounds,
 } from '../utils/geoUtils';
+
+import './FloodDashboard.css';
 
 const STORAGE_KEY_ZONES = 'cfrp_flood_zones';
 
@@ -36,6 +39,7 @@ export default function App() {
     return [];
   });
 
+  const [volunteers, setVolunteers] = useState([]);
   const [selectedZoneId, setSelectedZoneId] = useState(null);
   const [activeSeverity, setActiveSeverity] = useState('HIGH');
   const [drawMode, setDrawMode] = useState('simple_select');
@@ -62,6 +66,20 @@ export default function App() {
   const totalAffectedAreaKm2 = (
     totalAffectedArea / 1000000
   ).toFixed(2);
+
+  // Volunteer Statistics
+  const totalVolunteers = volunteers.length;
+
+  const availableVolunteers = volunteers.filter((v) => {
+    const available = v.available;
+    return (
+      available === true ||
+      available === 'true' ||
+      String(available).toLowerCase() === 'true'
+    );
+  }).length;
+
+  const unavailableVolunteers = totalVolunteers - availableVolunteers;
 
   // =========================================================
   // LOCAL STORAGE
@@ -141,6 +159,32 @@ export default function App() {
     };
 
     loadFloodZones();
+  }, []);
+
+  // =========================================================
+  // LOAD VOLUNTEERS FROM SUPABASE
+  // =========================================================
+
+  useEffect(() => {
+    const loadVolunteers = async () => {
+      try {
+        const data = await fetchVolunteers();
+
+        console.log(
+          'Supabase volunteers (raw):',
+          data
+        );
+
+        setVolunteers(data);
+      } catch (error) {
+        console.error(
+          'Failed to load volunteers:',
+          error
+        );
+      }
+    };
+
+    loadVolunteers();
   }, []);
 
   // =========================================================
@@ -304,13 +348,8 @@ export default function App() {
             </h1>
 
             <div className="header-meta">
-              <span className="badge-branch">
-                branch: feature/mapbox-flood-zones
-              </span>
 
-              <span className="badge-region">
-                ≡ƒôì Pune Division Command
-              </span>
+
             </div>
           </div>
         </div>
@@ -330,7 +369,7 @@ export default function App() {
 
       <section
         className="stats-ribbon"
-        aria-label="Flood statistics"
+        aria-label="Flood statistics and volunteer information"
       >
         <div className="stat-card">
           <span className="stat-label">
@@ -368,7 +407,37 @@ export default function App() {
           </span>
 
           <strong className="stat-value">
-            {totalAffectedAreaKm2} km┬▓
+            {totalAffectedAreaKm2} km²
+          </strong>
+        </div>
+
+        <div className="stat-card volunteer-total">
+          <span className="stat-label">
+            TOTAL VOLUNTEERS
+          </span>
+
+          <strong className="stat-value">
+            {totalVolunteers}
+          </strong>
+        </div>
+
+        <div className="stat-card volunteer-available">
+          <span className="stat-label">
+            AVAILABLE
+          </span>
+
+          <strong className="stat-value">
+            {availableVolunteers}
+          </strong>
+        </div>
+
+        <div className="stat-card volunteer-unavailable">
+          <span className="stat-label">
+            UNAVAILABLE
+          </span>
+
+          <strong className="stat-value">
+            {unavailableVolunteers}
           </strong>
         </div>
       </section>
@@ -406,6 +475,7 @@ export default function App() {
             activeSeverity={activeSeverity}
             drawMode={drawMode}
             setDrawMode={setDrawMode}
+            volunteers={volunteers}
           />
         </div>
       </main>

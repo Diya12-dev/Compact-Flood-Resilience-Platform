@@ -79,3 +79,20 @@ export async function deleteFloodZone(zoneId) {
 
   return true;
 }
+
+// =========================================================
+// VOLUNTEER FUNCTIONS
+// =========================================================
+
+export async function fetchVolunteers() {
+  const { data, error } = await supabase
+    .from('volunteers')
+    .select('*');
+
+  if (error) {
+    console.error('Error fetching volunteers:', error);
+    throw error;
+  }
+
+  return data || [];
+}

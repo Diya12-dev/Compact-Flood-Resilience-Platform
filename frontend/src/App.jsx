@@ -83,6 +83,44 @@ function HomeLanding() {
           maxWidth: '430px',
         }}
       >
+        {/* Flood Dashboard */}
+        <Link
+          to="/flood"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '10px',
+            padding: '15px 24px',
+            background:
+              'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)',
+            color: '#ffffff',
+            fontWeight: 600,
+            fontSize: '1rem',
+            borderRadius: '12px',
+            textDecoration: 'none',
+            boxShadow: '0 10px 25px -5px rgba(34, 197, 94, 0.5)',
+            transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+          }}
+        >
+          {/* Map Icon */}
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+            <circle cx="12" cy="10" r="3" />
+          </svg>
+
+          Flood Dashboard & Volunteers
+        </Link>
+
         {/* AR Flood Simulator */}
         <Link
           to="/simulate"
