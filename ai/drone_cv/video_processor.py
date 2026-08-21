@@ -26,18 +26,21 @@ if str(platform_dir) not in sys.path:
     sys.path.insert(0, str(platform_dir))
 
 from ai.drone_cv.detector import DroneObjectDetector
+from ai.drone_cv.tracker import DroneObjectTracker
 
 
 class DroneVideoProcessor:
     """
     Standalone video processor for drone & aerial flood monitoring video feeds.
     Processes MP4 videos frame-by-frame with configurable frame sampling,
-    reusing the existing DroneObjectDetector.
+    reusing DroneObjectDetector or DroneObjectTracker with ByteTrack.
     """
 
     def __init__(
         self,
         detector: Optional[DroneObjectDetector] = None,
+        tracker: Optional[DroneObjectTracker] = None,
+        use_tracker: bool = True,
         model_name: str = "yolov8n.pt",
         confidence_threshold: float = 0.25,
     ):
@@ -45,17 +48,31 @@ class DroneVideoProcessor:
         Initialize video processor.
 
         :param detector: Optional pre-instantiated DroneObjectDetector instance
-        :param model_name: YOLO model name if detector is not provided
-        :param confidence_threshold: Confidence threshold if detector is not provided
+        :param tracker: Optional pre-instantiated DroneObjectTracker instance
+        :param use_tracker: If True, uses ByteTrack persistent multi-object tracking
+        :param model_name: YOLO model name if detector/tracker is not provided
+        :param confidence_threshold: Confidence threshold if detector/tracker is not provided
         """
-        if detector is not None:
+        self.use_tracker = use_tracker
+        if tracker is not None:
+            self.tracker = tracker
+            self.detector = tracker.detector if hasattr(tracker, "detector") else None
+        elif use_tracker:
+            self.tracker = DroneObjectTracker(
+                model_name=model_name,
+                confidence_threshold=confidence_threshold,
+            )
+            self.detector = None
+        elif detector is not None:
             self.detector = detector
+            self.tracker = None
         else:
             self.detector = DroneObjectDetector(
                 model_name=model_name,
                 confidence_threshold=confidence_threshold,
                 target_classes_only=True,
             )
+            self.tracker = None
 
     def process_video(
         self,
@@ -63,15 +80,17 @@ class DroneVideoProcessor:
         output_video_path: Optional[Union[str, Path]] = None,
         save_json_path: Optional[Union[str, Path]] = None,
         frame_stride: int = 5,
+        progress_callback: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """
-        Processes an MP4 video file, detects objects on sampled frames, writes an
-        annotated MP4 output video, and returns structured JSON telemetry.
+        Processes an MP4 video file, detects/tracks objects on sampled frames,
+        writes an annotated MP4 output video, and returns structured JSON telemetry.
 
         :param video_input_path: Path to local input MP4 video file
         :param output_video_path: Path to save annotated output video (MP4)
         :param save_json_path: Path to save frame-level detection JSON
         :param frame_stride: Configurable frame sampling interval (e.g. process every Nth frame)
+        :param progress_callback: Optional progress update callback function
         :return: Dict containing structured video detection metadata
         """
         video_path_str = str(video_input_path)
@@ -119,12 +138,10 @@ class DroneVideoProcessor:
         if out_dir:
             os.makedirs(out_dir, exist_ok=True)
 
-        # Use mp4v fourcc codec for cross-platform MP4 compatibility
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(output_video_path), fourcc, fps, (width, height))
 
         if not writer.isOpened():
-            # Fallback codec if mp4v fails
             fourcc_fallback = cv2.VideoWriter_fourcc(*"avc1")
             writer = cv2.VideoWriter(str(output_video_path), fourcc_fallback, fps, (width, height))
             if not writer.isOpened():
@@ -139,6 +156,7 @@ class DroneVideoProcessor:
         total_people_detections = 0
         total_vehicle_detections = 0
         total_detections_count = 0
+        observed_unique_tracks = set()
 
         latest_annotated_frame: Optional[np.ndarray] = None
         frame_idx = 0
@@ -153,17 +171,33 @@ class DroneVideoProcessor:
                 is_sampled_frame = (frame_idx % frame_stride == 0)
 
                 if is_sampled_frame:
-                    # Run existing DroneObjectDetector on current frame
-                    detection_result, annotated_frame = self.detector.detect_image(
-                        image_input=frame,
-                        return_annotated_image=True,
-                    )
-                    latest_annotated_frame = annotated_frame
+                    if self.tracker is not None:
+                        frame_meta, annotated_frame = self.tracker.track_frame(
+                            frame=frame,
+                            persist=True,
+                            return_annotated_frame=True,
+                        )
+                        ppl = frame_meta["summary"]["people_count"]
+                        veh = frame_meta["summary"]["vehicle_count"]
+                        tot = frame_meta["summary"]["total_tracks"]
 
+                        for item in frame_meta["tracks"]:
+                            if item["track_id"] is not None:
+                                observed_unique_tracks.add((item["category"], item["track_id"]))
+
+                        detections_list = frame_meta["tracks"]
+                    else:
+                        detection_result, annotated_frame = self.detector.detect_image(
+                            image_input=frame,
+                            return_annotated_image=True,
+                        )
+                        ppl = detection_result["summary"]["people_count"]
+                        veh = detection_result["summary"]["vehicle_count"]
+                        tot = detection_result["summary"]["total_detections"]
+                        detections_list = detection_result["detections"]
+
+                    latest_annotated_frame = annotated_frame
                     processed_frames_count += 1
-                    ppl = detection_result["summary"]["people_count"]
-                    veh = detection_result["summary"]["vehicle_count"]
-                    tot = detection_result["summary"]["total_detections"]
 
                     total_people_detections += ppl
                     total_vehicle_detections += veh
@@ -174,25 +208,69 @@ class DroneVideoProcessor:
                         "timestamp_seconds": timestamp_sec,
                         "people_count": ppl,
                         "vehicle_count": veh,
-                        "detections": detection_result["detections"],
+                        "detections": detections_list,
                     })
+
+                    unique_person_count = len([tid for (cat, tid) in observed_unique_tracks if cat == "person"])
+                    unique_vehicle_count = len([tid for (cat, tid) in observed_unique_tracks if cat == "vehicle"])
+
+                    if progress_callback is not None:
+                        progress_percent = min(99, int((frame_idx / max(1, total_frames)) * 100))
+                        cb_data = {
+                            "frame_idx": frame_idx,
+                            "total_frames": total_frames,
+                            "progress": progress_percent,
+                            "timestamp_seconds": timestamp_sec,
+                            "people_detections": total_people_detections,
+                            "vehicle_detections": total_vehicle_detections,
+                            "total_detections": total_detections_count,
+                            "unique_person_tracks": unique_person_count,
+                            "unique_vehicle_tracks": unique_vehicle_count,
+                            "unique_track_ids": len(observed_unique_tracks),
+                        }
+                        try:
+                            progress_callback(cb_data)
+                        except Exception as cb_err:
+                            print(f"[DroneVideoProcessor Warning] Callback error: {cb_err}")
 
                     if processed_frames_count % 10 == 0:
                         print(f"  -> Processed {processed_frames_count} sampled frames (Frame #{frame_idx}/{total_frames})...")
                 else:
-                    # For non-sampled intermediate frames, reuse latest annotated frame if available
                     if latest_annotated_frame is not None:
                         annotated_frame = latest_annotated_frame
                     else:
                         annotated_frame = frame
 
-                # Write frame to output video stream
                 writer.write(annotated_frame)
                 frame_idx += 1
 
         finally:
             cap.release()
             writer.release()
+
+        # Ensure output MP4 video is encoded with H.264 (libx264 + yuv420p) for HTML5 browser video playback
+        try:
+            import subprocess
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            temp_h264_path = f"{str(output_video_path)}.h264.mp4"
+            cmd = [
+                ffmpeg_exe, "-y",
+                "-i", str(output_video_path),
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-preset", "fast",
+                temp_h264_path
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+            if res.returncode == 0 and os.path.exists(temp_h264_path):
+                os.replace(temp_h264_path, str(output_video_path))
+                print(f"[DroneVideoProcessor] H.264 web encoding completed for browser playback: {output_video_path}")
+        except Exception as enc_err:
+            print(f"[DroneVideoProcessor Warning] H.264 encoding step skipped: {enc_err}")
+
+        unique_person_count = len([tid for (cat, tid) in observed_unique_tracks if cat == "person"])
+        unique_vehicle_count = len([tid for (cat, tid) in observed_unique_tracks if cat == "vehicle"])
 
         # Build structured video detection metadata
         video_metadata = {
@@ -210,6 +288,9 @@ class DroneVideoProcessor:
                 "total_detections_across_frames": total_detections_count,
                 "total_people_detections": total_people_detections,
                 "total_vehicle_detections": total_vehicle_detections,
+                "unique_person_tracks": unique_person_count,
+                "unique_vehicle_tracks": unique_vehicle_count,
+                "unique_track_ids": len(observed_unique_tracks),
             },
             "annotated_video_path": str(output_video_path),
             "frame_detections": frame_detections,
