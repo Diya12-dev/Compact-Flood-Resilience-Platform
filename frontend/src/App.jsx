@@ -98,17 +98,17 @@ export default function App() {
     const bounds = getPolygonBounds(coords);
 
     return {
-  id: row.id,
-  name,
-  severity,
-  riskScore: row.risk_score,
-  area,
-  coordinates: coords,
-  center: bounds.center,
-  bbox: bounds.bbox,
-  feature: feature,
-  createdAt,
-};
+      id: row.id,
+      name: row.ward_name,
+      severity: row.severity,
+      riskScore: row.risk_score,
+      area,
+      coordinates: coords,
+      center: bounds.center,
+      bbox: bounds.bbox,
+      feature: feature,
+      createdAt: row.created_at,
+    };
   };
 
   // =========================================================
