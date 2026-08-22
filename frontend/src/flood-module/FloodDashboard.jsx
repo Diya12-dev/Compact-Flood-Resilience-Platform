@@ -6,6 +6,7 @@ import {
   deleteFloodZone,
   fetchVolunteers,
   fetchDashboardSummary,
+  fetchShelters,
 } from '../services/supabaseService';
 
 
@@ -13,6 +14,8 @@ import { fetchSOSAlerts } from '../services/sosService';
 
 import LeafletMap from '../components/LeafletMap';
 import FloodZonePanel from '../components/FloodZonePanel';
+import ShelterOperations from '../components/ShelterOperations';
+
 
 import {
   calculatePolygonArea,
@@ -27,7 +30,7 @@ export default function FloodDashboard() {
   // =========================================================
   // STATE
   // =========================================================
-const [dashboardSummary, setDashboardSummary] = useState([]);
+  const [dashboardSummary, setDashboardSummary] = useState([]);
   const [zones, setZones] = useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY_ZONES);
 
@@ -44,6 +47,8 @@ const [dashboardSummary, setDashboardSummary] = useState([]);
 
   const [volunteers, setVolunteers] = useState([]);
 
+  const [shelters, setShelters] = useState([]);
+
   const [sosAlerts, setSosAlerts] = useState([]);
 
   const [selectedZoneId, setSelectedZoneId] = useState(null);
@@ -51,7 +56,11 @@ const [dashboardSummary, setDashboardSummary] = useState([]);
   const [activeSeverity, setActiveSeverity] = useState('HIGH');
 
   const [drawMode, setDrawMode] = useState('simple_select');
+  //adding view state
+  const [activeView, setActiveView] = useState('command');
 
+  // adding selected sos state
+  const [selectedSOS, setSelectedSOS] = useState(null);
   // =========================================================
   // DASHBOARD STATISTICS
   // =========================================================
@@ -175,25 +184,25 @@ const [dashboardSummary, setDashboardSummary] = useState([]);
 
     loadFloodZones();
   }, []);
-// ============================================================
-// LOAD DASHBOARD SUMMARY FROM SUPABASE VIEW
-// ============================================================
+  // ============================================================
+  // LOAD DASHBOARD SUMMARY FROM SUPABASE VIEW
+  // ============================================================
 
-useEffect(() => {
-  const loadDashboardSummary = async () => {
-    try {
-      const data = await fetchDashboardSummary();
+  useEffect(() => {
+    const loadDashboardSummary = async () => {
+      try {
+        const data = await fetchDashboardSummary();
 
-      console.log('Dashboard summary:', data);
+        console.log('Dashboard summary:', data);
 
-      setDashboardSummary(data || []);
-    } catch (error) {
-      console.error('Failed to load dashboard summary:', error);
-    }
-  };
+        setDashboardSummary(data || []);
+      } catch (error) {
+        console.error('Failed to load dashboard summary:', error);
+      }
+    };
 
-  loadDashboardSummary();
-}, []);
+    loadDashboardSummary();
+  }, []);
   // =========================================================
   // LOAD VOLUNTEERS FROM SUPABASE
   // =========================================================
@@ -218,6 +227,27 @@ useEffect(() => {
     };
 
     loadVolunteers();
+  }, []);
+
+  // =========================================================
+  // LOAD SHELTERS FROM SUPABASE
+  // =========================================================
+
+  useEffect(() => {
+    const loadShelters = async () => {
+      try {
+        const data = await fetchShelters();
+
+        console.log('Supabase shelters:', data);
+
+        setShelters(data || []);
+      } catch (error) {
+        console.error('Failed to load shelters:', error);
+        setShelters([]);
+      }
+    };
+
+    loadShelters();
   }, []);
 
   // =========================================================
@@ -462,18 +492,18 @@ useEffect(() => {
           </strong>
         </div>
         <div className="stat-card sos">
-  <span className="stat-label">
-    ACTIVE SOS
-  </span>
-  <strong className="stat-value">
-    {
-      sosAlerts.filter(
-        (alert) =>
-          String(alert.status || 'open').toLowerCase() === 'open'
-      ).length
-    }
-  </strong>
-</div>
+          <span className="stat-label">
+            ACTIVE SOS
+          </span>
+          <strong className="stat-value">
+            {
+              sosAlerts.filter(
+                (alert) =>
+                  String(alert.status || 'open').toLowerCase() === 'open'
+              ).length
+            }
+          </strong>
+        </div>
 
         <div className="stat-card volunteer-total">
           <span className="stat-label">
@@ -505,44 +535,75 @@ useEffect(() => {
           </strong>
         </div>
       </section>
+      {/* ADDING SHELTER OPERATIONS BUTTONS */}
+      {activeView === 'command' && (
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            padding: '10px 20px',
+            background: '#080f19',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setActiveView('shelter')}
+            style={{
+              padding: '10px 16px',
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              borderRadius: '7px',
+              cursor: 'pointer',
+              fontWeight: '600',
+            }}
+          >
+            🏠 SHELTER OPERATIONS
+          </button>
+        </div>
+      )}
 
       {/* MAIN WORKSPACE */}
 
       <main
         className="app-workspace"
         id="main-workspace"
-      >
-        {/* FLOOD ZONE PANEL */}
-
-        <FloodZonePanel
-          zones={zones}
-          onZonesChange={handleZonesChange}
-          selectedZoneId={selectedZoneId}
-          onSelectZone={setSelectedZoneId}
-          activeSeverity={activeSeverity}
-          setActiveSeverity={setActiveSeverity}
-          drawMode={drawMode}
-          setDrawMode={setDrawMode}
-          onLoadSampleZones={handleLoadSampleZones}
-          onDeleteZone={handleDeleteZone}
-          onClearAllZones={handleClearAllZones}
-        />
-
-        {/* MAP */}
-
-        <div className="map-view-container">
-          <LeafletMap
+      >{activeView === 'command' ? (
+        <>
+          <FloodZonePanel
             zones={zones}
             onZonesChange={handleZonesChange}
             selectedZoneId={selectedZoneId}
             onSelectZone={setSelectedZoneId}
             activeSeverity={activeSeverity}
+            setActiveSeverity={setActiveSeverity}
             drawMode={drawMode}
             setDrawMode={setDrawMode}
-            volunteers={volunteers}
-            sosAlerts={sosAlerts}
+            onLoadSampleZones={handleLoadSampleZones}
+            onDeleteZone={handleDeleteZone}
+            onClearAllZones={handleClearAllZones}
           />
-        </div>
+
+          <div className="map-view-container">
+            <LeafletMap
+              zones={zones}
+              onZonesChange={handleZonesChange}
+              selectedZoneId={selectedZoneId}
+              onSelectZone={setSelectedZoneId}
+              activeSeverity={activeSeverity}
+              drawMode={drawMode}
+              setDrawMode={setDrawMode}
+              volunteers={volunteers}
+              sosAlerts={sosAlerts}
+              shelters={shelters}
+            />
+          </div>
+        </>
+      ) : (
+        <ShelterOperations
+          onBack={() => setActiveView('command')}
+        />
+      )}
       </main>
     </div>
   );

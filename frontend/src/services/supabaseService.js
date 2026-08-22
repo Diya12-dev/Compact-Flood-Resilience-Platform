@@ -83,6 +83,24 @@ export async function fetchVolunteers() {
 }
 
 // ============================================================
+// SHELTERS
+// ============================================================
+
+export async function fetchShelters() {
+  const { data, error } = await supabase
+    .from('shelters')
+    .select('*')
+    .order('name');
+
+  if (error) {
+    console.error('Error fetching shelters:', error);
+    throw error;
+  }
+
+  return data || [];
+}
+
+// ============================================================
 // DASHBOARD SUMMARY VIEW
 // ============================================================
 

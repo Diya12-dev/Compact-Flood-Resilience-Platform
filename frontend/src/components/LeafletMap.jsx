@@ -1,3 +1,6 @@
+// importing supabase
+import { supabase } from '../lib/supabase';
+
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import distance from '@turf/distance';
@@ -40,16 +43,22 @@ export default function LeafletMap({
 
   sosAlerts = [],
 
+  shelters = [],
+
 }) {
   console.log('LeafletMap SOS:', sosAlerts);
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
   const layersMapRef = useRef(new Map()); // zone.id -> L.Polygon
   const volunteerMarkersRef = useRef(new Map()); // volunteer.id -> L.CircleMarker
-const sosMarkersRef = useRef(new Map());
+
+  const sosMarkersRef = useRef(new Map());
+  const shelterMarkersRef = useRef(new Map()); // shelter marker
   const [cursorCoords, setCursorCoords] = useState(null);
   const [selectedSOS, setSelectedSOS] = useState(null);
-const [assignedVolunteer, setAssignedVolunteer] = useState(null);
+  const [assignedVolunteer, setAssignedVolunteer] = useState(null);
+  // adding for route line.
+  const [routeLine, setRouteLine] = useState(null);
   const [mapZoom, setMapZoom] = useState(DEFAULT_ZOOM);
 
   // Helper to get styling options based on severity
@@ -375,69 +384,69 @@ const [assignedVolunteer, setAssignedVolunteer] = useState(null);
     });
   }, [volunteers]);
   // =========================================================
-   //RENDER SOS ALERT MARKERS
-// =========================================================
+  //RENDER SOS ALERT MARKERS
+  // =========================================================
 
-// =========================================================
-useEffect(() => {
-  const map = mapRef.current;
+  // =========================================================
+  useEffect(() => {
+    const map = mapRef.current;
 
-  if (!map) return;
+    if (!map) return;
 
-  const incomingIds = new Set(
-    (sosAlerts || []).map((alert) => alert.id)
-  );
+    const incomingIds = new Set(
+      (sosAlerts || []).map((alert) => alert.id)
+    );
 
-  // Remove old SOS markers
-  sosMarkersRef.current.forEach((marker, id) => {
-    if (!incomingIds.has(id)) {
-      if (map.hasLayer(marker)) {
-        map.removeLayer(marker);
-      }
-      sosMarkersRef.current.delete(id);
-    }
-  });
-
-  // Create/update SOS markers
-  (sosAlerts || []).forEach((alert) => {
-    if (
-      !alert ||
-      alert.lat === undefined ||
-      alert.lng === undefined
-    ) {
-      return;
-    }
-
-    const severity = String(
-      alert.severity || 'medium'
-    ).toUpperCase();
-
-    let markerColor = '#f59e0b';
-
-    if (severity === 'CRITICAL') {
-      markerColor = '#ef4444';
-    } else if (severity === 'HIGH') {
-      markerColor = '#f97316';
-    } else if (severity === 'LOW') {
-      markerColor = '#22c55e';
-    }
-
-    let marker = sosMarkersRef.current.get(alert.id);
-
-    if (!marker) {
-      marker = L.circleMarker(
-        [Number(alert.lat), Number(alert.lng)],
-        {
-          radius: 10,
-          fillColor: markerColor,
-          color: '#ffffff',
-          weight: 3,
-          opacity: 1,
-          fillOpacity: 0.95,
+    // Remove old SOS markers
+    sosMarkersRef.current.forEach((marker, id) => {
+      if (!incomingIds.has(id)) {
+        if (map.hasLayer(marker)) {
+          map.removeLayer(marker);
         }
-      ).addTo(map);
+        sosMarkersRef.current.delete(id);
+      }
+    });
 
-      marker.bindPopup(`
+    // Create/update SOS markers
+    (sosAlerts || []).forEach((alert) => {
+      if (
+        !alert ||
+        alert.lat === undefined ||
+        alert.lng === undefined
+      ) {
+        return;
+      }
+
+      const severity = String(
+        alert.severity || 'medium'
+      ).toUpperCase();
+
+      let markerColor = '#f59e0b';
+
+      if (severity === 'CRITICAL') {
+        markerColor = '#ef4444';
+      } else if (severity === 'HIGH') {
+        markerColor = '#f97316';
+      } else if (severity === 'LOW') {
+        markerColor = '#22c55e';
+      }
+
+      let marker = sosMarkersRef.current.get(alert.id);
+
+      if (!marker) {
+        marker = L.circleMarker(
+          [Number(alert.lat), Number(alert.lng)],
+          {
+            radius: 10,
+            fillColor: markerColor,
+            color: '#ffffff',
+            weight: 3,
+            opacity: 1,
+            fillOpacity: 0.95,
+          }
+        ).addTo(map);
+
+        marker.bindPopup(`
   <div style="font-family: Arial, sans-serif; font-size: 13px; min-width: 180px;">
     <strong style="color: #dc2626; font-size: 15px;">
       🆘 SOS ALERT
@@ -468,33 +477,141 @@ useEffect(() => {
 
     <div style="margin-top: 8px;">
       <strong>Created:</strong>
-      ${
-        alert.created_at
-          ? new Date(alert.created_at).toLocaleString()
-          : 'Unknown'
-      }
+      ${alert.created_at
+            ? new Date(alert.created_at).toLocaleString()
+            : 'Unknown'
+          }
     </div>
   </div>
 `);
+        // making sos marker clickable
+        marker.on('click', () => {
+          setSelectedSOS(alert);
+        });
 
-      sosMarkersRef.current.set(alert.id, marker);
-    } else {
-      marker.setLatLng([
-        Number(alert.lat),
-        Number(alert.lng),
-      ]);
+        sosMarkersRef.current.set(alert.id, marker);
+      } else {
+        marker.setLatLng([
+          Number(alert.lat),
+          Number(alert.lng),
+        ]);
 
-      marker.setStyle({
-        fillColor: markerColor,
-      });
-    }
-  });
+        marker.setStyle({
+          fillColor: markerColor,
+        });
+      }
+    });
 
-  console.log(
-    'SOS markers rendered:',
-    sosAlerts?.length || 0
-  );
-}, [sosAlerts]);
+    console.log(
+      'SOS markers rendered:',
+      sosAlerts?.length || 0
+    );
+  }, [sosAlerts]);
+  // =========================================================
+  // RENDER SHELTER MARKERS
+  // =========================================================
+
+
+
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map) return;
+
+    const incomingIds = new Set(
+      (shelters || []).map((shelter) => shelter.id)
+    );
+
+    // Remove old shelter markers
+    shelterMarkersRef.current.forEach((marker, id) => {
+      if (!incomingIds.has(id)) {
+        if (map.hasLayer(marker)) {
+          map.removeLayer(marker);
+        }
+
+        shelterMarkersRef.current.delete(id);
+      }
+    });
+
+    // Add/update shelter markers
+    (shelters || []).forEach((shelter) => {
+      if (
+        !shelter ||
+        shelter.lat === undefined ||
+        shelter.lng === undefined
+      ) {
+        return;
+      }
+
+      const isOpen =
+        String(shelter.status || 'open').toLowerCase() === 'open';
+
+      const markerColor = isOpen ? '#2563eb' : '#6b7280';
+
+      let marker = shelterMarkersRef.current.get(shelter.id);
+
+      if (!marker) {
+        marker = L.circleMarker(
+          [Number(shelter.lat), Number(shelter.lng)],
+          {
+            radius: 9,
+            fillColor: markerColor,
+            color: '#ffffff',
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.9,
+          }
+        ).addTo(map);
+
+        marker.bindPopup(`
+        <div style="font-family: Arial, sans-serif; font-size: 13px; min-width: 190px;">
+          <strong style="font-size: 15px;">
+            🏠 ${shelter.name || 'Shelter'}
+          </strong>
+
+          <hr style="margin: 6px 0;" />
+
+          <div>
+            <strong>Status:</strong>
+            ${String(shelter.status || 'open').toUpperCase()}
+          </div>
+
+          <div>
+            <strong>Capacity:</strong>
+            ${shelter.capacity ?? 'Not specified'}
+          </div>
+
+          ${shelter.contact
+            ? `<div><strong>Contact:</strong> ${shelter.contact}</div>`
+            : ''
+          }
+
+          <div style="margin-top: 6px;">
+            <strong>Location:</strong><br/>
+            ${Number(shelter.lat).toFixed(5)},
+            ${Number(shelter.lng).toFixed(5)}
+          </div>
+        </div>
+      `);
+
+        shelterMarkersRef.current.set(shelter.id, marker);
+      } else {
+        marker.setLatLng([
+          Number(shelter.lat),
+          Number(shelter.lng),
+        ]);
+
+        marker.setStyle({
+          fillColor: markerColor,
+        });
+      }
+    });
+
+    console.log(
+      'Shelter markers rendered:',
+      shelters?.length || 0
+    );
+  }, [shelters]);
 
   // Focus and zoom when a zone is selected
   useEffect(() => {
@@ -519,10 +636,285 @@ useEffect(() => {
     }
   };
 
+  //adding an assignment function
+  const assignVolunteerToSOS = async () => {
+    if (!selectedSOS || !assignedVolunteer) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('sos_alerts')
+        .update({
+          assigned_volunteer_id: assignedVolunteer.id,
+          status: 'assigned',
+        })
+        .eq('id', selectedSOS.id);
+
+      if (error) {
+        console.error('Error assigning volunteer:', error);
+        alert('Failed to assign volunteer.');
+        return;
+      }
+
+      setSelectedSOS({
+        ...selectedSOS,
+        assigned_volunteer_id: assignedVolunteer.id,
+        status: 'assigned',
+      });
+
+      alert(`${assignedVolunteer.name} has been assigned to this SOS.`);
+    } catch (error) {
+      console.error('Unexpected assignment error:', error);
+      alert('Something went wrong while assigning the volunteer.');
+    }
+  };
+  // adding resolve sos function
+  const resolveSOS = async () => {
+    if (!selectedSOS) return;
+
+    const { error } = await supabase
+      .from('sos_alerts')
+      .update({
+        status: 'resolved',
+      })
+      .eq('id', selectedSOS.id);
+
+    if (error) {
+      console.error('Error resolving SOS:', error);
+      alert('Failed to resolve SOS.');
+      return;
+    }
+
+    setSelectedSOS({
+      ...selectedSOS,
+      status: 'resolved',
+    });
+
+    alert('SOS marked as resolved.');
+  };
+
+  //Drawing route line
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (routeLine) {
+      const line = L.polyline(routeLine, {
+        color: '#7c3aed',
+        weight: 5,
+        opacity: 0.9,
+      }).addTo(map);
+
+      map.fitBounds(line.getBounds(), {
+        padding: [80, 80],
+        animate: true,
+      });
+
+      return () => {
+        if (map.hasLayer(line)) {
+          map.removeLayer(line);
+        }
+      };
+    }
+  }, [routeLine]);
+
   return (
     <div className="map-wrapper" id="leaflet-map-container">
       {/* Leaflet DOM container */}
       <div ref={mapContainerRef} className="map-canvas" id="leaflet-canvas" />
+      {/* Adding a small action panel */}
+      {selectedSOS && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '70px',
+            right: '20px',
+            zIndex: 1000,
+            background: 'white',
+            color: '#111827',
+            padding: '16px',
+            borderRadius: '10px',
+            boxShadow: '0 4px 15px rgba(0,0,0,0.25)',
+            width: '260px',
+            fontFamily: 'Arial, sans-serif',
+          }}
+        >
+          <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#dc2626' }}>
+            🆘 SOS ALERT
+          </div>
+
+          <hr />
+
+          <div>
+            <strong>Severity:</strong>{' '}
+            {String(selectedSOS.severity || 'medium').toUpperCase()}
+          </div>
+
+          <div>
+            <strong>Status:</strong>{' '}
+            {String(selectedSOS.status || 'open').toUpperCase()}
+          </div>
+
+          <div style={{ marginTop: '8px' }}>
+            <strong>Location:</strong><br />
+            {Number(selectedSOS.lat).toFixed(5)},{' '}
+            {Number(selectedSOS.lng).toFixed(5)}
+          </div>
+
+          <button
+            style={{
+              marginTop: '14px',
+              width: '100%',
+              padding: '10px',
+              background: '#2563eb',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+            onClick={() => {
+              const availableVolunteers = volunteers.filter(
+                (v) => v.available === true || v.available === 'true'
+              );
+
+              if (availableVolunteers.length === 0) {
+                alert('No available volunteers found.');
+                return;
+              }
+
+              let nearest = null;
+              let shortestDistance = Infinity;
+
+              availableVolunteers.forEach((volunteer) => {
+                const d = distance(
+                  point([Number(selectedSOS.lng), Number(selectedSOS.lat)]),
+                  point([Number(volunteer.lng), Number(volunteer.lat)]),
+                  { units: 'kilometers' }
+                );
+
+                if (d < shortestDistance) {
+                  shortestDistance = d;
+                  nearest = volunteer;
+                }
+              });
+
+              setAssignedVolunteer({
+                ...nearest,
+                distance: shortestDistance,
+              });
+            }}
+          >
+            FIND NEAREST VOLUNTEER
+          </button>
+
+          {assignedVolunteer && (
+            <div
+              style={{
+                marginTop: '12px',
+                padding: '10px',
+                background: '#f0fdf4',
+                borderRadius: '6px',
+              }}
+            >
+              <strong>Nearest Available Volunteer</strong>
+
+              <div style={{ marginTop: '5px' }}>
+                {assignedVolunteer.name}
+              </div>
+
+              <div>
+                {assignedVolunteer.skill || 'General Volunteer'}
+              </div>
+
+              <div style={{ fontWeight: 'bold', color: '#16a34a' }}>
+                {assignedVolunteer.distance.toFixed(2)} km away
+              </div>
+            </div>
+          )}
+
+          {/* Adding a general route button */}
+
+          <button
+            style={{
+              marginTop: '10px',
+              width: '100%',
+              padding: '10px',
+              background: '#7c3aed',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+            onClick={() => {
+              if (!selectedSOS || !assignedVolunteer) return;
+
+              setRouteLine([
+                [Number(assignedVolunteer.lat), Number(assignedVolunteer.lng)],
+                [Number(selectedSOS.lat), Number(selectedSOS.lng)],
+              ]);
+            }}
+          >
+            🛣️ GENERATE ROUTE
+          </button>
+
+          {/*adding assign volunteer button */}
+          <button
+            style={{
+              marginTop: '10px',
+              width: '100%',
+              padding: '10px',
+              background: '#16a34a',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+            onClick={assignVolunteerToSOS}
+            disabled={!assignedVolunteer || selectedSOS?.status === 'assigned'}
+
+          >
+            ✓ ASSIGN VOLUNTEER
+          </button>
+
+          {/*adding resolve SOS button */}
+          {selectedSOS?.status === 'assigned' && (
+            <button
+              style={{
+                marginTop: '10px',
+                width: '100%',
+                padding: '10px',
+                background: '#16a34a',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+              }}
+              onClick={resolveSOS}
+            >
+              ✓ MARK AS RESOLVED
+            </button>
+          )}
+          <button
+            style={{
+              marginTop: '10px',
+              width: '100%',
+              padding: '7px',
+              background: '#e5e7eb',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
+            onClick={() => {
+              setSelectedSOS(null);
+              setAssignedVolunteer(null);
+            }}
+          >
+            CLOSE
+          </button>
+        </div>
+      )}
 
       {/* Top HUD Toolbar with Pune recenter button */}
       <div className="map-hud-top-bar" id="map-hud-toolbar">
