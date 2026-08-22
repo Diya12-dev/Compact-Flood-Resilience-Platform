@@ -71,7 +71,7 @@ function HomeLanding() {
         }}
       >
         Interactive disaster response platform integrating AR flood
-        visualization, AI-powered drone monitoring, real-time command tools,
+        visualization, drone monitoring, real-time command tools,
         and safe evacuation guidance.
       </p>
 
@@ -161,7 +161,7 @@ function HomeLanding() {
           Launch AR Flood Simulator
         </Link>
 
-        {/* AI Drone Monitoring */}
+        {/* Drone Monitoring Dashboard */}
         <Link
           to="/drone"
           style={{
@@ -205,7 +205,7 @@ function HomeLanding() {
             <path d="M17 16l-2-2" />
           </svg>
 
-          Launch AI Drone Monitoring
+          Drone Monitoring Dashboard
         </Link>
       </div>
 
@@ -331,7 +331,7 @@ export default function App() {
         element={<ARSimulator />}
       />
 
-      {/* AI Drone Monitoring */}
+      {/* Drone Monitoring Dashboard */}
       <Route
         path="/drone"
         element={<DroneMonitoring />}
