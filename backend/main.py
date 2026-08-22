@@ -34,7 +34,10 @@ app = FastAPI(
     version="1.1.0",
 )
 
-# Enable CORS for local Vite development frontend servers
+# Enable CORS for local Vite development frontend servers and production cloud origins
+allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "")
+custom_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+
 origins = [
     "http://localhost:5173",
     "http://localhost:3000",
@@ -42,6 +45,7 @@ origins = [
     "http://127.0.0.1:5173",
     "http://127.0.0.1:3000",
     "http://127.0.0.1:3001",
+    *custom_origins,
 ]
 
 app.add_middleware(
@@ -520,4 +524,10 @@ async def websocket_telemetry_stream(websocket: WebSocket, mission_id: str):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("backend.main:app", host="127.0.0.1", port=8010, reload=True)
+    port = int(os.getenv("PORT", 8010))
+    uvicorn.run(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=False,
+    )
